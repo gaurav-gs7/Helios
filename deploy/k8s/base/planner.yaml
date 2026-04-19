@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planner
+  namespace: helios
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: planner
+  template:
+    metadata:
+      labels:
+        app: planner
+    spec:
+      containers:
+        - name: planner
+          image: helios/planner:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: helios-config
+            - secretRef:
+                name: helios-secrets
+          ports:
+            - containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: planner
+  namespace: helios
+spec:
+  selector:
+    app: planner
+  ports:
+    - port: 8090
+      targetPort: 8090

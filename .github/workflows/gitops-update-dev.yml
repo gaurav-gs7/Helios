@@ -1,0 +1,56 @@
+name: gitops-update-dev
+
+on:
+  workflow_run:
+    workflows:
+      - docker-publish
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to promote into the dev overlay, for example sha-abcdef1 or dev.
+        required: true
+        default: dev
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  update-dev-overlay:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: imranismail/setup-kustomize@v2
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+            echo "value=sha-${HEAD_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Update dev overlay image tags
+        working-directory: deploy/k8s/overlays/dev
+        run: |
+          kustomize edit set image "$IMAGE_PREFIX/control-plane=$IMAGE_PREFIX/control-plane:${{ steps.tag.outputs.value }}"
+          kustomize edit set image "$IMAGE_PREFIX/worker=$IMAGE_PREFIX/worker:${{ steps.tag.outputs.value }}"
+          kustomize edit set image "$IMAGE_PREFIX/planner=$IMAGE_PREFIX/planner:${{ steps.tag.outputs.value }}"
+      - name: Render updated dev overlay
+        run: kustomize build deploy/k8s/overlays/dev >/tmp/helios-dev.yaml
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: codex/gitops-update-dev-${{ steps.tag.outputs.value }}
+          title: "chore(gitops): promote Helios dev images to ${{ steps.tag.outputs.value }}"
+          commit-message: "chore(gitops): promote dev images to ${{ steps.tag.outputs.value }}"
+          body: |
+            Promotes Helios dev Kustomize overlay images to `${{ steps.tag.outputs.value }}`.
+
+            Argo CD will sync `deploy/k8s/overlays/dev` after this PR is merged.
+          labels: deployment,gitops

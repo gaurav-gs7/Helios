@@ -1,0 +1,104 @@
+groups:
+  - name: helios-control-plane
+    rules:
+      - alert: HeliosControlPlaneDown
+        expr: up{job="helios-control-plane"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: control-plane
+        annotations:
+          summary: Helios control plane is not scrapeable
+          description: Prometheus cannot scrape the Helios control plane for more than 1 minute.
+
+      - alert: HeliosNoHealthyWorkers
+        expr: helios_workers_healthy_workers == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: workers
+        annotations:
+          summary: Helios has no healthy workers
+          description: No healthy workers are available, so ready tasks cannot be scheduled.
+
+      - alert: HeliosTaskFailuresDetected
+        expr: increase(helios_control_plane_task_transitions_total{new_state="failed"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: control-plane
+        annotations:
+          summary: Helios task failures detected
+          description: At least one task transitioned to failed in the last 10 minutes.
+
+      - alert: HeliosTaskTimeoutsDetected
+        expr: increase(helios_control_plane_task_transitions_total{new_state="timed_out"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: scheduler
+        annotations:
+          summary: Helios task timeouts detected
+          description: At least one task timed out in the last 10 minutes.
+
+      - alert: HeliosRetryBacklogPresent
+        expr: helios_tasks_by_state{state="retry_wait"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: scheduler
+        annotations:
+          summary: Helios tasks are waiting for retry
+          description: Tasks have remained in retry_wait for more than 5 minutes.
+
+      - alert: HeliosRecoverySpike
+        expr: increase(helios_scheduler_recoveries_total[10m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+          service: scheduler
+        annotations:
+          summary: Helios recovery activity is elevated
+          description: More than 3 task recoveries occurred in the last 10 minutes.
+
+  - name: helios-ai-planner
+    rules:
+      - alert: HeliosPlannerDown
+        expr: up{job="helios-planner"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: planner
+        annotations:
+          summary: Helios AI planner is not scrapeable
+          description: Prometheus cannot scrape the Gemini planner service for more than 1 minute.
+
+      - alert: HeliosGeminiErrors
+        expr: increase(helios_genai_requests_total{status="error"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: planner
+        annotations:
+          summary: Gemini planner errors detected
+          description: One or more Gemini-backed planner calls failed in the last 10 minutes.
+
+      - alert: HeliosGeminiLatencyHigh
+        expr: rate(helios_genai_latency_seconds_sum[5m]) / rate(helios_genai_latency_seconds_count[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: planner
+        annotations:
+          summary: Gemini planner latency is high
+          description: Average Gemini request latency exceeded 10 seconds over the last 5 minutes.
+
+      - alert: HeliosRAGRetrievalEmpty
+        expr: increase(helios_rag_retrievals_total{status="empty"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: planner
+        annotations:
+          summary: RAG runbook retrieval returned no matches
+          description: At least one failure-analysis request could not match a local runbook.

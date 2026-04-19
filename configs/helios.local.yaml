@@ -1,0 +1,24 @@
+service:
+  name: helios-control-plane
+  version: dev
+http:
+  addr: ":8080"
+  read_timeout: 10s
+  write_timeout: 15s
+  idle_timeout: 60s
+database:
+  url: postgres://helios:helios@localhost:5432/helios?sslmode=disable
+nats:
+  url: nats://localhost:4222
+scheduler:
+  tick: 1s
+  recovery_tick: 2s
+  lease_duration: 20s
+workers:
+  heartbeat_stale_after: 15s
+  heartbeat_dead_after: 30s
+planner:
+  url: http://localhost:8090
+security:
+  admin_token_env: HELIOS_ADMIN_TOKEN
+  worker_bootstrap_token_env: HELIOS_WORKER_BOOTSTRAP_TOKEN

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: helios-config
+  namespace: helios
+data:
+  HELIOS_LEASE_DURATION: "30s"
+  HELIOS_SCHEDULER_TICK: "1s"
+  HELIOS_RECOVERY_TICK: "2s"
+  HELIOS_HEARTBEAT_STALE_AFTER: "15s"
+  HELIOS_HEARTBEAT_DEAD_AFTER: "45s"
+  HELIOS_SUBMISSION_RATE_PER_MINUTE: "300"

@@ -1,0 +1,982 @@
+{
+    "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+    "name": "fraud-ai-risk-pipeline",
+    "state": "succeeded",
+    "created_at": "2026-04-18T13:52:04.225467+05:30",
+    "updated_at": "2026-04-18T13:52:14.207549+05:30",
+    "metadata": {
+      "owner": "platform",
+      "use_case": "resume-demo",
+      "workload": "trusted-fraud-risk-scoring"
+    },
+    "tasks": [
+      {
+        "task_id": "aggregate-risk-results",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_type": "aggregate_risk_results",
+        "state": "succeeded",
+        "dependencies": [
+          "score-fraud-risk"
+        ],
+        "attempt": 1,
+        "max_attempts": 2,
+        "timeout_seconds": 10,
+        "idempotency_key": "fraud-demo-aggregate-v1",
+        "input_payload": {
+          "scores": [
+            {
+              "id": "txn-1001",
+              "decision": "approve",
+              "risk_score": 0.05,
+              "contributors": [
+                "base"
+              ]
+            },
+            {
+              "id": "txn-1002",
+              "decision": "block",
+              "risk_score": 0.99,
+              "contributors": [
+                "base",
+                "very_high_amount",
+                "cross_border",
+                "high_risk_geo",
+                "remote_channel"
+              ]
+            },
+            {
+              "id": "txn-1003",
+              "decision": "review",
+              "risk_score": 0.5,
+              "contributors": [
+                "base",
+                "high_amount",
+                "cross_border",
+                "remote_channel"
+              ]
+            }
+          ]
+        },
+        "output_payload": {
+          "status": "aggregated",
+          "avg_risk": 0.513,
+          "checksum": "de6b5722391babe7270bf5e2c17aee0a18c21789197a171a76e5789cdab4a249",
+          "max_risk": 0.99,
+          "score_count": 3,
+          "decision_counts": {
+            "block": 1,
+            "review": 1,
+            "approve": 1
+          }
+        },
+        "retry_policy": {
+          "max_attempts": 2,
+          "initial_backoff_seconds": 1,
+          "max_backoff_seconds": 5,
+          "multiplier": 2
+        },
+        "created_at": "2026-04-18T13:52:04.225467+05:30",
+        "updated_at": "2026-04-18T13:52:13.206203+05:30",
+        "completed_at": "2026-04-18T13:52:13.206203+05:30",
+        "priority": 0,
+        "dependency_count": 1
+      },
+      {
+        "task_id": "build-risk-features",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_type": "enrich_risk_features",
+        "state": "succeeded",
+        "dependencies": [
+          "validate-transaction-batch"
+        ],
+        "attempt": 1,
+        "max_attempts": 3,
+        "timeout_seconds": 10,
+        "idempotency_key": "fraud-demo-features-v1",
+        "input_payload": {
+          "records": [
+            {
+              "id": "txn-1001",
+              "amount": 42.75,
+              "channel": "pos",
+              "country": "us",
+              "currency": "usd",
+              "merchant_id": "merchant-a"
+            },
+            {
+              "id": "txn-1002",
+              "amount": 1275.2,
+              "channel": "web",
+              "country": "ng",
+              "currency": "usd",
+              "merchant_id": "merchant-b"
+            },
+            {
+              "id": "txn-1003",
+              "amount": 560.0,
+              "channel": "card_not_present",
+              "country": "de",
+              "currency": "eur",
+              "merchant_id": "merchant-c"
+            }
+          ]
+        },
+        "output_payload": {
+          "count": 3,
+          "status": "features_built",
+          "checksum": "e2b21e9e30c941d9c99aa99c482317abb07630a94901ba3ec03690ca0f7feaf3",
+          "features": [
+            {
+              "id": "txn-1001",
+              "channel": "pos",
+              "amount_bucket": "low",
+              "merchant_hash": "7e8be15d7fb4ffb7",
+              "source_attempt": 1,
+              "feature_version": "risk-features-v1",
+              "idempotency_key": "fraud-demo-features-v1",
+              "is_cross_border": false,
+              "is_high_risk_geo": false,
+              "normalized_amount": 42.75,
+              "source_workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207"
+            },
+            {
+              "id": "txn-1002",
+              "channel": "web",
+              "amount_bucket": "very_high",
+              "merchant_hash": "effa0a13bda64442",
+              "source_attempt": 1,
+              "feature_version": "risk-features-v1",
+              "idempotency_key": "fraud-demo-features-v1",
+              "is_cross_border": true,
+              "is_high_risk_geo": true,
+              "normalized_amount": 1275.2,
+              "source_workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207"
+            },
+            {
+              "id": "txn-1003",
+              "channel": "card_not_present",
+              "amount_bucket": "high",
+              "merchant_hash": "0942323c96bb2051",
+              "source_attempt": 1,
+              "feature_version": "risk-features-v1",
+              "idempotency_key": "fraud-demo-features-v1",
+              "is_cross_border": true,
+              "is_high_risk_geo": false,
+              "normalized_amount": 560,
+              "source_workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207"
+            }
+          ],
+          "generated": "2026-04-18T13:52:07+05:30"
+        },
+        "retry_policy": {
+          "max_attempts": 3,
+          "initial_backoff_seconds": 2,
+          "max_backoff_seconds": 20,
+          "multiplier": 2
+        },
+        "created_at": "2026-04-18T13:52:04.225467+05:30",
+        "updated_at": "2026-04-18T13:52:07.206619+05:30",
+        "completed_at": "2026-04-18T13:52:07.206619+05:30",
+        "priority": 0,
+        "dependency_count": 1
+      },
+      {
+        "task_id": "embed-case-notes",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_type": "embed_text_batch",
+        "state": "succeeded",
+        "dependencies": [
+          "validate-transaction-batch"
+        ],
+        "attempt": 1,
+        "max_attempts": 2,
+        "timeout_seconds": 10,
+        "idempotency_key": "fraud-demo-embeddings-v1",
+        "input_payload": {
+          "documents": [
+            {
+              "id": "case-note-1002",
+              "text": "High-value web transaction from high-risk geography requires fraud review."
+            },
+            {
+              "id": "case-note-1003",
+              "text": "Cross-border card-not-present transaction should be monitored."
+            }
+          ],
+          "dimensions": 8
+        },
+        "output_payload": {
+          "count": 2,
+          "status": "embedded",
+          "checksum": "45cfcf63142c80e772fdaae0116b32b67f7c2c93da36889e01fee9809340215c",
+          "embeddings": [
+            {
+              "id": "case-note-1002",
+              "vector": [
+                -0.4902,
+                0.9529,
+                0.6549,
+                -0.1686,
+                -0.3961,
+                0.1529,
+                -0.1843,
+                -0.6
+              ],
+              "dimension": 8,
+              "text_hash": "34486fb6bfbabe54"
+            },
+            {
+              "id": "case-note-1003",
+              "vector": [
+                0.6471,
+                -0.6941,
+                -0.3804,
+                -0.9373,
+                -0.0431,
+                -0.9843,
+                -0.8667,
+                0.8667
+              ],
+              "dimension": 8,
+              "text_hash": "907bc6d864628c5b"
+            }
+          ],
+          "embedding_model": "deterministic-local-v1"
+        },
+        "retry_policy": {
+          "max_attempts": 2,
+          "initial_backoff_seconds": 1,
+          "max_backoff_seconds": 5,
+          "multiplier": 2
+        },
+        "created_at": "2026-04-18T13:52:04.225467+05:30",
+        "updated_at": "2026-04-18T13:52:08.205261+05:30",
+        "completed_at": "2026-04-18T13:52:08.205261+05:30",
+        "priority": 0,
+        "dependency_count": 1
+      },
+      {
+        "task_id": "persist-risk-artifact",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_type": "persist_artifact",
+        "state": "succeeded",
+        "dependencies": [
+          "aggregate-risk-results",
+          "embed-case-notes"
+        ],
+        "attempt": 1,
+        "max_attempts": 2,
+        "timeout_seconds": 10,
+        "idempotency_key": "fraud-demo-persist-v1",
+        "input_payload": {
+          "sink": "postgres://risk_artifacts",
+          "dataset": "fraud_daily_scores",
+          "artifact": {
+            "summary": {
+              "avg_risk": 0.513,
+              "score_count": 3,
+              "decision_counts": {
+                "block": 1,
+                "review": 1,
+                "approve": 1
+              }
+            },
+            "workflow": "fraud-ai-risk-pipeline",
+            "embedding_batch": "case-notes"
+          }
+        },
+        "output_payload": {
+          "sink": "postgres://risk_artifacts",
+          "status": "persisted",
+          "dataset": "fraud_daily_scores",
+          "checksum": "0102d61b15835e86dac463560b2c8cc3e3eea427805b9cc040c2527a4d43b05e",
+          "artifact_id": "c72277b4ed94e47b",
+          "recorded_at": "2026-04-18T13:52:14+05:30",
+          "idempotency_key": "fraud-demo-persist-v1"
+        },
+        "retry_policy": {
+          "max_attempts": 2,
+          "initial_backoff_seconds": 1,
+          "max_backoff_seconds": 5,
+          "multiplier": 2
+        },
+        "created_at": "2026-04-18T13:52:04.225467+05:30",
+        "updated_at": "2026-04-18T13:52:14.207549+05:30",
+        "completed_at": "2026-04-18T13:52:14.207549+05:30",
+        "priority": 0,
+        "dependency_count": 2
+      },
+      {
+        "task_id": "score-fraud-risk",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_type": "score_fraud_risk",
+        "state": "succeeded",
+        "dependencies": [
+          "build-risk-features"
+        ],
+        "attempt": 2,
+        "max_attempts": 3,
+        "timeout_seconds": 10,
+        "idempotency_key": "fraud-demo-score-v1",
+        "input_payload": {
+          "records": [
+            {
+              "id": "txn-1001",
+              "amount": 42.75,
+              "channel": "pos",
+              "country": "us",
+              "currency": "usd",
+              "merchant_id": "merchant-a"
+            },
+            {
+              "id": "txn-1002",
+              "amount": 1275.2,
+              "channel": "web",
+              "country": "ng",
+              "currency": "usd",
+              "merchant_id": "merchant-b"
+            },
+            {
+              "id": "txn-1003",
+              "amount": 560.0,
+              "channel": "card_not_present",
+              "country": "de",
+              "currency": "eur",
+              "merchant_id": "merchant-c"
+            }
+          ],
+          "retryable_failure": true,
+          "fail_until_attempt": 1
+        },
+        "output_payload": {
+          "model": "fraud-risk-rules-v1",
+          "scores": [
+            {
+              "id": "txn-1001",
+              "decision": "approve",
+              "risk_score": 0.05,
+              "contributors": [
+                "base"
+              ]
+            },
+            {
+              "id": "txn-1002",
+              "decision": "block",
+              "risk_score": 0.99,
+              "contributors": [
+                "base",
+                "very_high_amount",
+                "cross_border",
+                "high_risk_geo",
+                "remote_channel"
+              ]
+            },
+            {
+              "id": "txn-1003",
+              "decision": "review",
+              "risk_score": 0.55,
+              "contributors": [
+                "base",
+                "high_amount",
+                "cross_border",
+                "remote_channel"
+              ]
+            }
+          ],
+          "status": "scored",
+          "attempt": 2,
+          "max_risk": 0.99,
+          "score_count": 3,
+          "decision_hash": "98fd14613ee1561b29d9a315030a857ec90822ad0f4809a19035513425e76098"
+        },
+        "retry_policy": {
+          "max_attempts": 3,
+          "initial_backoff_seconds": 2,
+          "max_backoff_seconds": 20,
+          "multiplier": 2
+        },
+        "created_at": "2026-04-18T13:52:04.225467+05:30",
+        "updated_at": "2026-04-18T13:52:12.202432+05:30",
+        "completed_at": "2026-04-18T13:52:12.202432+05:30",
+        "priority": 0,
+        "dependency_count": 1
+      },
+      {
+        "task_id": "validate-transaction-batch",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_type": "validate_records",
+        "state": "succeeded",
+        "attempt": 1,
+        "max_attempts": 3,
+        "timeout_seconds": 10,
+        "idempotency_key": "fraud-demo-validate-v1",
+        "input_payload": {
+          "records": [
+            {
+              "id": "txn-1001",
+              "amount": 42.75,
+              "channel": "pos",
+              "country": "us",
+              "currency": "usd",
+              "merchant_id": "merchant-a"
+            },
+            {
+              "id": "txn-1002",
+              "amount": 1275.2,
+              "channel": "web",
+              "country": "ng",
+              "currency": "usd",
+              "merchant_id": "merchant-b"
+            },
+            {
+              "id": "txn-1003",
+              "amount": 560.0,
+              "channel": "card_not_present",
+              "country": "de",
+              "currency": "eur",
+              "merchant_id": "merchant-c"
+            }
+          ]
+        },
+        "output_payload": {
+          "status": "validated",
+          "records": [
+            {
+              "id": "txn-1001",
+              "amount": 42.75,
+              "channel": "pos",
+              "country": "US",
+              "currency": "USD",
+              "merchant_id": "merchant-a"
+            },
+            {
+              "id": "txn-1002",
+              "amount": 1275.2,
+              "channel": "web",
+              "country": "NG",
+              "currency": "USD",
+              "merchant_id": "merchant-b"
+            },
+            {
+              "id": "txn-1003",
+              "amount": 560,
+              "channel": "card_not_present",
+              "country": "DE",
+              "currency": "EUR",
+              "merchant_id": "merchant-c"
+            }
+          ],
+          "checksum": "2aafa8b13e1cd4cffbd33ce561ad998b36db1af725131a9c3c470c3b9e3c533e",
+          "rejected": [],
+          "valid_count": 3,
+          "invalid_count": 0
+        },
+        "retry_policy": {
+          "max_attempts": 3,
+          "initial_backoff_seconds": 2,
+          "max_backoff_seconds": 20,
+          "multiplier": 2
+        },
+        "created_at": "2026-04-18T13:52:04.225467+05:30",
+        "updated_at": "2026-04-18T13:52:06.206875+05:30",
+        "completed_at": "2026-04-18T13:52:06.206875+05:30",
+        "priority": 0,
+        "dependency_count": 0
+      }
+    ],
+    "events": [
+      {
+        "event_id": "9eac36db-e1c7-46a5-ab94-592cb7dedfb6",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "workflow aggregate state changed",
+        "occurred_at": "2026-04-18T13:52:14.207549+05:30",
+        "description": "workflow status recomputed from task graph"
+      },
+      {
+        "event_id": "81a0b860-66cb-4a51-80bd-dcb71f8e7115",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "persist-risk-artifact",
+        "attempt_id": "463346a4-1d64-4fa0-8d30-c1dcef0c5a68",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "worker reported success",
+        "occurred_at": "2026-04-18T13:52:14.207549+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task completed successfully"
+      },
+      {
+        "event_id": "e96dd5d9-3532-4861-b971-cafd6cf9bf04",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "persist-risk-artifact",
+        "attempt_id": "463346a4-1d64-4fa0-8d30-c1dcef0c5a68",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:14.201888+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "f3f2d875-15ec-4414-a796-1418f5d6e846",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "persist-risk-artifact",
+        "attempt_id": "463346a4-1d64-4fa0-8d30-c1dcef0c5a68",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:14.19388+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "919af3d8-ff79-49cd-a064-859c2a847146",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "aggregate-risk-results",
+        "attempt_id": "44c5ded5-3332-4bf7-b56b-fc32a039d9eb",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "worker reported success",
+        "occurred_at": "2026-04-18T13:52:13.206203+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task completed successfully"
+      },
+      {
+        "event_id": "2591f3a0-1288-47e4-a6c1-d1335c1a230a",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "persist-risk-artifact",
+        "actor": "scheduler",
+        "old_state": "pending",
+        "new_state": "ready",
+        "reason": "all upstream dependencies succeeded",
+        "occurred_at": "2026-04-18T13:52:13.206203+05:30",
+        "description": "task unlocked by upstream completion"
+      },
+      {
+        "event_id": "f3e9317b-7c6a-4753-9abb-98f86ff77b3b",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "aggregate-risk-results",
+        "attempt_id": "44c5ded5-3332-4bf7-b56b-fc32a039d9eb",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:13.202598+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "9e2630cb-ee99-4a5c-af3f-47723b96854f",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "aggregate-risk-results",
+        "attempt_id": "44c5ded5-3332-4bf7-b56b-fc32a039d9eb",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:13.195761+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "fcbfbfcd-7a0d-45e2-aaaa-c688703ca977",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "attempt_id": "7bc39038-1d40-4b12-9a1d-09d93a28b4bd",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "worker reported success",
+        "occurred_at": "2026-04-18T13:52:12.202432+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task completed successfully"
+      },
+      {
+        "event_id": "970d8f9d-4c84-47c0-b75e-06f40ca1fafe",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "aggregate-risk-results",
+        "actor": "scheduler",
+        "old_state": "pending",
+        "new_state": "ready",
+        "reason": "all upstream dependencies succeeded",
+        "occurred_at": "2026-04-18T13:52:12.202432+05:30",
+        "description": "task unlocked by upstream completion"
+      },
+      {
+        "event_id": "d15a4959-bb6e-4345-add2-64fd3f1a5f03",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "attempt_id": "7bc39038-1d40-4b12-9a1d-09d93a28b4bd",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:12.197555+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "390898cf-3979-4196-b285-1da4fca060e9",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "attempt_id": "7bc39038-1d40-4b12-9a1d-09d93a28b4bd",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:12.193133+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "6176efc8-dbb1-41ca-80b6-e0d20511c7f2",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "actor": "recovery",
+        "old_state": "retry_wait",
+        "new_state": "ready",
+        "reason": "backoff window elapsed",
+        "occurred_at": "2026-04-18T13:52:12.189303+05:30",
+        "description": "task returned to ready queue after retry backoff"
+      },
+      {
+        "event_id": "ed3a47da-99a8-4ffc-8bae-74c40b96c411",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "attempt_id": "e612fba2-26fc-4512-a5d7-897c5ea4241b",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "retry_wait",
+        "reason": "retry scheduled",
+        "occurred_at": "2026-04-18T13:52:09.20364+05:30",
+        "metadata": {
+          "error": "transient model-serving error at attempt 1",
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task failure reported by worker"
+      },
+      {
+        "event_id": "1e2581bc-06d1-43d5-8455-7c2617f8934e",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "attempt_id": "e612fba2-26fc-4512-a5d7-897c5ea4241b",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:09.201369+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "6d4b2eb4-fe71-4048-b772-77739cba6a73",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "attempt_id": "e612fba2-26fc-4512-a5d7-897c5ea4241b",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:09.19515+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "1b8194e9-aded-4465-9599-ae92a51ec2f9",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "embed-case-notes",
+        "attempt_id": "b4ae0be0-a933-4749-bce2-0472b395ddda",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "worker reported success",
+        "occurred_at": "2026-04-18T13:52:08.205261+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task completed successfully"
+      },
+      {
+        "event_id": "a674e766-e881-45f0-9289-4ca4e3271224",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "embed-case-notes",
+        "attempt_id": "b4ae0be0-a933-4749-bce2-0472b395ddda",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:08.20121+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "a8e5e88c-7613-4fa6-ba10-73a882e30d03",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "embed-case-notes",
+        "attempt_id": "b4ae0be0-a933-4749-bce2-0472b395ddda",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:08.193369+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "4d5af9b9-8183-4e20-ab4a-b16e786eedae",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "build-risk-features",
+        "attempt_id": "09cb75a5-a1fa-421f-9790-aee771a94a9e",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "worker reported success",
+        "occurred_at": "2026-04-18T13:52:07.206619+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task completed successfully"
+      },
+      {
+        "event_id": "a47a9609-0566-476d-85c2-a8ad752ad596",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "actor": "scheduler",
+        "old_state": "pending",
+        "new_state": "ready",
+        "reason": "all upstream dependencies succeeded",
+        "occurred_at": "2026-04-18T13:52:07.206619+05:30",
+        "description": "task unlocked by upstream completion"
+      },
+      {
+        "event_id": "e6eba776-81f6-4802-9a53-e1e2745c2953",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "build-risk-features",
+        "attempt_id": "09cb75a5-a1fa-421f-9790-aee771a94a9e",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:07.203627+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "7a12a4c4-40f1-47c5-a81c-7a63157c585c",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "build-risk-features",
+        "attempt_id": "09cb75a5-a1fa-421f-9790-aee771a94a9e",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:07.196878+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "f01959a9-9129-4498-b3fb-a32d68a0ae81",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "embed-case-notes",
+        "actor": "scheduler",
+        "old_state": "pending",
+        "new_state": "ready",
+        "reason": "all upstream dependencies succeeded",
+        "occurred_at": "2026-04-18T13:52:06.206875+05:30",
+        "description": "task unlocked by upstream completion"
+      },
+      {
+        "event_id": "346c52ea-5383-4155-bfc7-1cf2e36b8526",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "build-risk-features",
+        "actor": "scheduler",
+        "old_state": "pending",
+        "new_state": "ready",
+        "reason": "all upstream dependencies succeeded",
+        "occurred_at": "2026-04-18T13:52:06.206875+05:30",
+        "description": "task unlocked by upstream completion"
+      },
+      {
+        "event_id": "8c241d9c-a993-442e-8882-dc6e191d50cf",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "validate-transaction-batch",
+        "attempt_id": "35b82496-0012-40e3-8674-deca419f84a3",
+        "actor": "worker",
+        "old_state": "running",
+        "new_state": "succeeded",
+        "reason": "worker reported success",
+        "occurred_at": "2026-04-18T13:52:06.206875+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task completed successfully"
+      },
+      {
+        "event_id": "173ce4d1-f9cb-48e7-bc45-9013f8c54b9e",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "validate-transaction-batch",
+        "attempt_id": "35b82496-0012-40e3-8674-deca419f84a3",
+        "actor": "worker",
+        "old_state": "leased",
+        "new_state": "running",
+        "reason": "worker acknowledged execution start",
+        "occurred_at": "2026-04-18T13:52:06.203695+05:30",
+        "metadata": {
+          "trace_id": "",
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "worker started task execution"
+      },
+      {
+        "event_id": "c59e23ed-d069-4236-8006-65a6e8de6795",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "validate-transaction-batch",
+        "attempt_id": "35b82496-0012-40e3-8674-deca419f84a3",
+        "actor": "scheduler",
+        "old_state": "ready",
+        "new_state": "leased",
+        "reason": "worker selected by least-loaded policy",
+        "occurred_at": "2026-04-18T13:52:06.196055+05:30",
+        "metadata": {
+          "worker_id": "b7e57586-89f5-449d-9181-c78f87528843"
+        },
+        "description": "task leased to worker"
+      },
+      {
+        "event_id": "5cf01e7c-b916-4651-b072-7d577dba39a4",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "validate-transaction-batch",
+        "actor": "api",
+        "new_state": "ready",
+        "reason": "workflow submitted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "metadata": {
+          "task_type": "validate_records"
+        },
+        "description": "task persisted during workflow submission"
+      },
+      {
+        "event_id": "9f95035a-fead-4749-af06-73938bebf989",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "build-risk-features",
+        "actor": "api",
+        "new_state": "pending",
+        "reason": "workflow submitted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "metadata": {
+          "task_type": "enrich_risk_features"
+        },
+        "description": "task persisted during workflow submission"
+      },
+      {
+        "event_id": "07239b90-ce96-45ad-8857-ed01b75bec40",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "actor": "api",
+        "new_state": "running",
+        "reason": "workflow accepted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "description": "workflow stored durably and root tasks are ready"
+      },
+      {
+        "event_id": "c1b8206c-3372-45e1-b414-fe2f0b08d102",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "persist-risk-artifact",
+        "actor": "api",
+        "new_state": "pending",
+        "reason": "workflow submitted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "metadata": {
+          "task_type": "persist_artifact"
+        },
+        "description": "task persisted during workflow submission"
+      },
+      {
+        "event_id": "4db75a35-7474-4b5c-a207-880d3356286d",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "embed-case-notes",
+        "actor": "api",
+        "new_state": "pending",
+        "reason": "workflow submitted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "metadata": {
+          "task_type": "embed_text_batch"
+        },
+        "description": "task persisted during workflow submission"
+      },
+      {
+        "event_id": "c24dcde7-6107-4110-8496-2ad5ee0640cb",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "aggregate-risk-results",
+        "actor": "api",
+        "new_state": "pending",
+        "reason": "workflow submitted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "metadata": {
+          "task_type": "aggregate_risk_results"
+        },
+        "description": "task persisted during workflow submission"
+      },
+      {
+        "event_id": "916e3bbc-cf84-4782-8c2b-c0d26818ac7e",
+        "workflow_id": "7413fd64-0d8d-49c6-80b0-dbd0da1cb207",
+        "task_id": "score-fraud-risk",
+        "actor": "api",
+        "new_state": "pending",
+        "reason": "workflow submitted",
+        "occurred_at": "2026-04-18T13:52:04.225467+05:30",
+        "metadata": {
+          "task_type": "score_fraud_risk"
+        },
+        "description": "task persisted during workflow submission"
+      }
+    ]
+    }  

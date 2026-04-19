@@ -1,0 +1,249 @@
+{
+  "name": "fraud-ai-risk-pipeline",
+  "metadata": {
+    "owner": "platform",
+    "use_case": "resume-demo",
+    "workload": "trusted-fraud-risk-scoring"
+  },
+  "tasks": [
+    {
+      "task_id": "validate-transaction-batch",
+      "task_type": "validate_records",
+      "input_payload": {
+        "records": [
+          {
+            "id": "txn-1001",
+            "amount": 42.75,
+            "currency": "usd",
+            "merchant_id": "merchant-a",
+            "country": "us",
+            "channel": "pos"
+          },
+          {
+            "id": "txn-1002",
+            "amount": 1275.2,
+            "currency": "usd",
+            "merchant_id": "merchant-b",
+            "country": "ng",
+            "channel": "web"
+          },
+          {
+            "id": "txn-1003",
+            "amount": 560.0,
+            "currency": "eur",
+            "merchant_id": "merchant-c",
+            "country": "de",
+            "channel": "card_not_present"
+          }
+        ]
+      },
+      "timeout_seconds": 10,
+      "priority": 80,
+      "cpu_units": 250,
+      "memory_mb": 128,
+      "expected_duration_seconds": 2,
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "max_backoff_seconds": 20,
+        "multiplier": 2
+      },
+      "idempotency_key": "fraud-demo-validate-v1"
+    },
+    {
+      "task_id": "build-risk-features",
+      "task_type": "enrich_risk_features",
+      "dependencies": ["validate-transaction-batch"],
+      "input_payload": {
+        "records": [
+          {
+            "id": "txn-1001",
+            "amount": 42.75,
+            "currency": "usd",
+            "merchant_id": "merchant-a",
+            "country": "us",
+            "channel": "pos"
+          },
+          {
+            "id": "txn-1002",
+            "amount": 1275.2,
+            "currency": "usd",
+            "merchant_id": "merchant-b",
+            "country": "ng",
+            "channel": "web"
+          },
+          {
+            "id": "txn-1003",
+            "amount": 560.0,
+            "currency": "eur",
+            "merchant_id": "merchant-c",
+            "country": "de",
+            "channel": "card_not_present"
+          }
+        ]
+      },
+      "timeout_seconds": 10,
+      "priority": 70,
+      "cpu_units": 500,
+      "memory_mb": 256,
+      "expected_duration_seconds": 4,
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "max_backoff_seconds": 20,
+        "multiplier": 2
+      },
+      "idempotency_key": "fraud-demo-features-v1"
+    },
+    {
+      "task_id": "score-fraud-risk",
+      "task_type": "score_fraud_risk",
+      "dependencies": ["build-risk-features"],
+      "input_payload": {
+        "fail_until_attempt": 1,
+        "retryable_failure": true,
+        "records": [
+          {
+            "id": "txn-1001",
+            "amount": 42.75,
+            "currency": "usd",
+            "merchant_id": "merchant-a",
+            "country": "us",
+            "channel": "pos"
+          },
+          {
+            "id": "txn-1002",
+            "amount": 1275.2,
+            "currency": "usd",
+            "merchant_id": "merchant-b",
+            "country": "ng",
+            "channel": "web"
+          },
+          {
+            "id": "txn-1003",
+            "amount": 560.0,
+            "currency": "eur",
+            "merchant_id": "merchant-c",
+            "country": "de",
+            "channel": "card_not_present"
+          }
+        ]
+      },
+      "timeout_seconds": 10,
+      "priority": 95,
+      "cpu_units": 1000,
+      "memory_mb": 384,
+      "expected_duration_seconds": 5,
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "max_backoff_seconds": 20,
+        "multiplier": 2
+      },
+      "idempotency_key": "fraud-demo-score-v1"
+    },
+    {
+      "task_id": "aggregate-risk-results",
+      "task_type": "aggregate_risk_results",
+      "dependencies": ["score-fraud-risk"],
+      "input_payload": {
+        "scores": [
+          {
+            "id": "txn-1001",
+            "risk_score": 0.05,
+            "decision": "approve",
+            "contributors": ["base"]
+          },
+          {
+            "id": "txn-1002",
+            "risk_score": 0.99,
+            "decision": "block",
+            "contributors": ["base", "very_high_amount", "cross_border", "high_risk_geo", "remote_channel"]
+          },
+          {
+            "id": "txn-1003",
+            "risk_score": 0.5,
+            "decision": "review",
+            "contributors": ["base", "high_amount", "cross_border", "remote_channel"]
+          }
+        ]
+      },
+      "timeout_seconds": 10,
+      "priority": 60,
+      "cpu_units": 300,
+      "memory_mb": 128,
+      "expected_duration_seconds": 2,
+      "retry_policy": {
+        "max_attempts": 2,
+        "initial_backoff_seconds": 1,
+        "max_backoff_seconds": 5,
+        "multiplier": 2
+      },
+      "idempotency_key": "fraud-demo-aggregate-v1"
+    },
+    {
+      "task_id": "embed-case-notes",
+      "task_type": "embed_text_batch",
+      "dependencies": ["validate-transaction-batch"],
+      "input_payload": {
+        "dimensions": 8,
+        "documents": [
+          {
+            "id": "case-note-1002",
+            "text": "High-value web transaction from high-risk geography requires fraud review."
+          },
+          {
+            "id": "case-note-1003",
+            "text": "Cross-border card-not-present transaction should be monitored."
+          }
+        ]
+      },
+      "timeout_seconds": 10,
+      "priority": 75,
+      "cpu_units": 700,
+      "memory_mb": 256,
+      "expected_duration_seconds": 3,
+      "retry_policy": {
+        "max_attempts": 2,
+        "initial_backoff_seconds": 1,
+        "max_backoff_seconds": 5,
+        "multiplier": 2
+      },
+      "idempotency_key": "fraud-demo-embeddings-v1"
+    },
+    {
+      "task_id": "persist-risk-artifact",
+      "task_type": "persist_artifact",
+      "dependencies": ["aggregate-risk-results", "embed-case-notes"],
+      "input_payload": {
+        "sink": "postgres://risk_artifacts",
+        "dataset": "fraud_daily_scores",
+        "artifact": {
+          "workflow": "fraud-ai-risk-pipeline",
+          "summary": {
+            "score_count": 3,
+            "avg_risk": 0.513,
+            "decision_counts": {
+              "approve": 1,
+              "review": 1,
+              "block": 1
+            }
+          },
+          "embedding_batch": "case-notes"
+        }
+      },
+      "timeout_seconds": 10,
+      "priority": 50,
+      "cpu_units": 200,
+      "memory_mb": 128,
+      "expected_duration_seconds": 1,
+      "retry_policy": {
+        "max_attempts": 2,
+        "initial_backoff_seconds": 1,
+        "max_backoff_seconds": 5,
+        "multiplier": 2
+      },
+      "idempotency_key": "fraud-demo-persist-v1"
+    }
+  ]
+}

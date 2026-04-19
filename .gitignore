@@ -1,0 +1,9 @@
+.DS_Store
+.env
+bin/
+dist/
+planner/.venv/
+planner/__pycache__/
+coverage.out
+.gocache/
+.gomodcache/

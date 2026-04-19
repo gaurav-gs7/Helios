@@ -1,0 +1,43 @@
+{
+  "title": "Helios Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Workflows Submitted",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "helios_control_plane_workflows_submitted_total" }]
+    },
+    {
+      "type": "stat",
+      "title": "Assignments",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "helios_scheduler_assignments_total" }]
+    },
+    {
+      "type": "stat",
+      "title": "Recoveries",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "helios_scheduler_recoveries_total" }]
+    },
+    {
+      "type": "stat",
+      "title": "Healthy Workers",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "helios_workers_healthy_workers" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task Transitions",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "sum by (new_state) (rate(helios_control_plane_task_transitions_total[5m]))" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker Heartbeats",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{ "expr": "rate(helios_workers_heartbeats_total[5m])" }]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+name: deploy-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_target:
+        description: Choose deployment target.
+        required: true
+        default: docker-compose
+        type: choice
+        options:
+          - docker-compose
+          - kubernetes
+          - argocd
+      overlay:
+        description: Kustomize overlay to deploy for kubernetes/argocd targets.
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - prod-like
+      run_ai_dry_run:
+        description: Run Gemini-backed planner dry-run during smoke test.
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-smoke:
+    runs-on: ubuntu-latest
+    env:
+      HELIOS_K8S_NAMESPACE: helios
+      HELIOS_ADMIN_TOKEN: change-me-admin-token
+      HELIOS_SMOKE_AI_DRY_RUN: ${{ github.event.inputs.run_ai_dry_run }}
+      HELIOS_DEPLOY_TARGET: ${{ github.event.inputs.deployment_target }}
+      HELIOS_DEPLOY_OVERLAY: ${{ github.event.inputs.overlay }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.0
+      - name: Configure kubeconfig
+        if: github.event.inputs.deployment_target != 'docker-compose'
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          if [ -z "$KUBE_CONFIG_B64" ]; then
+            echo "KUBE_CONFIG_B64 repository secret is required for deploy-smoke." >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.kube"
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Run selectable deployment
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HELIOS_PRECHECK_GO_TESTS: "true"
+          HELIOS_PRECHECK_PYTHON_COMPILE: "true"
+          HELIOS_PRECHECK_PROMTOOL: "true"
+          HELIOS_POSTCHECK_SMOKE: "true"
+        run: scripts/deploy/deploy.sh
+      - name: Rollback on failure
+        if: failure() && github.event.inputs.deployment_target != 'docker-compose'
+        run: scripts/deploy/rollback.sh

@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: helios-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: helios
+    app.kubernetes.io/part-of: helios
+    app.kubernetes.io/environment: dev
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/gauravgs7/helios.git
+    targetRevision: main
+    path: deploy/k8s/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: helios
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+  revisionHistoryLimit: 5
