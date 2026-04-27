@@ -1,0 +1,326 @@
+syntax = "proto3";
+
+package helios.v1;
+
+option go_package = "github.com/gauravgs7/helios/helios/v1;heliosv1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service ControlPlaneService {
+  rpc GetHealth(HealthRequest) returns (HealthResponse);
+  rpc GetReady(ReadyRequest) returns (ReadyResponse);
+  rpc RegisterWorker(WorkerRegistration) returns (WorkerRegistrationResult);
+  rpc HeartbeatWorker(HeartbeatWorkerRequest) returns (StatusResponse);
+  rpc ListWorkers(ListWorkersRequest) returns (WorkerListResponse);
+  rpc StartTaskExecution(StartTaskExecutionRequest) returns (StatusResponse);
+  rpc CompleteTaskExecution(CompleteTaskExecutionRequest) returns (StatusResponse);
+  rpc FailTaskExecution(FailTaskExecutionRequest) returns (StatusResponse);
+  rpc CreateWorkflow(CreateWorkflowRequest) returns (WorkflowSummary);
+  rpc ListWorkflows(ListWorkflowsRequest) returns (WorkflowListResponse);
+  rpc GetWorkflow(GetWorkflowRequest) returns (WorkflowSummary);
+  rpc ListWorkflowTasks(ListWorkflowTasksRequest) returns (TaskListResponse);
+  rpc ListWorkflowEvents(ListWorkflowEventsRequest) returns (WorkflowEventListResponse);
+  rpc GetTask(GetTaskRequest) returns (TaskRecord);
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
+  rpc PlannerIntent(PlannerIntentRequest) returns (PlannerIntentResponse);
+  rpc PlannerDryRun(PlannerIntentRequest) returns (PlannerDryRunResponse);
+  rpc AnalyzeWorkflowFailure(AnalyzeWorkflowFailureRequest) returns (FailureAnalysisResponse);
+}
+
+message HealthRequest {}
+
+message ReadyRequest {}
+
+message HealthResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string version = 3;
+}
+
+message ReadyResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  map<string, string> checks = 3;
+}
+
+message RetryPolicy {
+  int32 max_attempts = 1;
+  int32 initial_backoff_seconds = 2;
+  int32 max_backoff_seconds = 3;
+  double multiplier = 4;
+}
+
+message TaskSpec {
+  string task_id = 1;
+  string task_type = 2;
+  repeated string dependencies = 3;
+  bytes input_payload = 4;
+  int32 timeout_seconds = 5;
+  RetryPolicy retry_policy = 6;
+  map<string, string> labels = 7;
+  map<string, string> metadata = 8;
+  string idempotency_key = 9;
+  int32 priority = 10;
+  int32 cpu_units = 11;
+  int32 memory_mb = 12;
+  int32 expected_duration_seconds = 13;
+}
+
+message WorkflowSpec {
+  string name = 1;
+  map<string, string> labels = 2;
+  map<string, string> metadata = 3;
+  repeated TaskSpec tasks = 4;
+}
+
+message WorkflowSummary {
+  string workflow_id = 1;
+  string name = 2;
+  string state = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  map<string, string> labels = 6;
+  map<string, string> metadata = 7;
+}
+
+message TaskRecord {
+  string task_id = 1;
+  string workflow_id = 2;
+  string task_type = 3;
+  string state = 4;
+  repeated string dependencies = 5;
+  int32 attempt = 6;
+  int32 max_attempts = 7;
+  string assigned_worker = 8;
+  int32 timeout_seconds = 9;
+  google.protobuf.Timestamp lease_expires_at = 10;
+  google.protobuf.Timestamp next_run_at = 11;
+  string last_error = 12;
+  string idempotency_key = 13;
+  bytes input_payload = 14;
+  bytes output_payload = 15;
+  RetryPolicy retry_policy = 16;
+  map<string, string> labels = 17;
+  map<string, string> metadata = 18;
+  string current_attempt = 19;
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp updated_at = 21;
+  google.protobuf.Timestamp completed_at = 22;
+  int32 priority = 23;
+  int32 cpu_units = 24;
+  int32 memory_mb = 25;
+  int32 expected_duration_seconds = 26;
+  int32 dependency_count = 27;
+}
+
+message TaskEvent {
+  string event_id = 1;
+  string workflow_id = 2;
+  string task_id = 3;
+  string attempt_id = 4;
+  string actor = 5;
+  string old_state = 6;
+  string new_state = 7;
+  string reason = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+  map<string, string> metadata = 10;
+  string description = 11;
+}
+
+message WorkerRegistration {
+  string hostname = 1;
+  string version = 2;
+  repeated string supported_task_types = 3;
+  int32 capacity = 4;
+  int32 cpu_capacity_units = 5;
+  int32 memory_capacity_mb = 6;
+}
+
+message WorkerSnapshot {
+  string worker_id = 1;
+  string hostname = 2;
+  string version = 3;
+  repeated string supported_task_types = 4;
+  int32 capacity = 5;
+  int32 running_task_count = 6;
+  int32 free_slots = 7;
+  int32 queue_depth = 8;
+  double cpu_load = 9;
+  int32 cpu_capacity_units = 10;
+  int32 allocated_cpu_units = 11;
+  int32 memory_used_mb = 12;
+  int32 memory_capacity_mb = 13;
+  int32 allocated_memory_mb = 14;
+  google.protobuf.Timestamp last_heartbeat_at = 15;
+  string health = 16;
+  google.protobuf.Timestamp registered_at = 17;
+}
+
+message WorkerRegistrationResult {
+  WorkerSnapshot worker = 1;
+  string worker_token = 2;
+}
+
+message WorkerHeartbeat {
+  double cpu_load = 1;
+  int32 memory_used_mb = 2;
+  int32 free_slots = 3;
+  int32 queue_depth = 4;
+  int32 running_task_count = 5;
+}
+
+message HeartbeatWorkerRequest {
+  string worker_id = 1;
+  WorkerHeartbeat heartbeat = 2;
+}
+
+message ListWorkersRequest {}
+
+message WorkerListResponse {
+  repeated WorkerSnapshot workers = 1;
+}
+
+message StartTaskExecutionRequest {
+  string workflow_id = 1;
+  string task_id = 2;
+  string worker_id = 3;
+  string attempt_id = 4;
+  string started_at = 5;
+  string trace_id = 6;
+  string reason_hint = 7;
+}
+
+message CompleteTaskExecutionRequest {
+  string workflow_id = 1;
+  string task_id = 2;
+  string worker_id = 3;
+  string attempt_id = 4;
+  bytes output_payload = 5;
+  string trace_id = 6;
+}
+
+message FailTaskExecutionRequest {
+  string workflow_id = 1;
+  string task_id = 2;
+  string worker_id = 3;
+  string attempt_id = 4;
+  string error = 5;
+  bool retryable = 6;
+  string trace_id = 7;
+}
+
+message WorkflowListResponse {
+  repeated WorkflowSummary workflows = 1;
+}
+
+message TaskListResponse {
+  string workflow_id = 1;
+  repeated TaskRecord tasks = 2;
+}
+
+message WorkflowEventListResponse {
+  string workflow_id = 1;
+  repeated TaskEvent events = 2;
+}
+
+message CreateWorkflowRequest {
+  WorkflowSpec workflow = 1;
+}
+
+message ListWorkflowsRequest {
+  string state = 1;
+  int32 limit = 2;
+}
+
+message GetWorkflowRequest {
+  string workflow_id = 1;
+}
+
+message ListWorkflowTasksRequest {
+  string workflow_id = 1;
+}
+
+message ListWorkflowEventsRequest {
+  string workflow_id = 1;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+message CancelWorkflowRequest {
+  string workflow_id = 1;
+}
+
+message CancelWorkflowResponse {
+  string status = 1;
+}
+
+message StatusResponse {
+  string status = 1;
+}
+
+message PlannerIntentRequest {
+  string name = 1;
+  string intent = 2;
+  repeated string stages = 3;
+  int32 timeout_seconds = 4;
+  RetryPolicy retry_policy = 5;
+}
+
+message PlannerIntentResponse {
+  WorkflowSpec workflow = 1;
+  repeated string planning_notes = 2;
+  google.protobuf.Struct scheduler_hints = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message DryRunWorkflowAnalysis {
+  int32 task_count = 1;
+  int32 edge_count = 2;
+  repeated string root_tasks = 3;
+  repeated string terminal_tasks = 4;
+  int32 max_parallelism_estimate = 5;
+  repeated string critical_path = 6;
+  int32 critical_path_length = 7;
+  int32 estimated_runtime_seconds = 8;
+  map<string, int32> task_types = 9;
+  repeated string risk_warnings = 10;
+}
+
+message PlannerDryRunResponse {
+  bool valid = 1;
+  repeated string validation_errors = 2;
+  WorkflowSpec workflow = 3;
+  repeated string planning_notes = 4;
+  google.protobuf.Struct scheduler_hints = 5;
+  DryRunWorkflowAnalysis analysis = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message AnalyzeWorkflowFailureRequest {
+  string workflow_id = 1;
+  string runbook_query = 2;
+  bool include_raw_snapshot = 3;
+}
+
+message RunbookMatch {
+  string title = 1;
+  string path = 2;
+  double score = 3;
+  string excerpt = 4;
+}
+
+message FailureAnalysisResponse {
+  string summary = 1;
+  string failure_class = 2;
+  repeated string likely_root_causes = 3;
+  repeated string recovery_actions = 4;
+  repeated string affected_tasks = 5;
+  repeated RunbookMatch runbook_matches = 6;
+  double confidence = 7;
+  string backend = 8;
+  google.protobuf.Timestamp generated_at = 9;
+  google.protobuf.Struct raw_snapshot = 10;
+}

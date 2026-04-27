@@ -15,17 +15,23 @@ import (
 	"sync/atomic"
 	"time"
 
+	heliosv1 "github.com/gauravgs7/helios/helios/v1"
 	"github.com/gauravgs7/helios/internal/config"
 	"github.com/gauravgs7/helios/internal/dispatch"
 	"github.com/gauravgs7/helios/internal/domain"
 	"github.com/gauravgs7/helios/internal/handlers"
 	"github.com/nats-io/nats.go"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type Runtime struct {
 	cfg         config.Config
 	logger      *slog.Logger
 	client      *http.Client
+	grpcConn    *grpc.ClientConn
+	grpcClient  heliosv1.ControlPlaneServiceClient
 	dispatcher  *dispatch.Dispatcher
 	worker      domain.WorkerSnapshot
 	workerToken string
@@ -60,6 +66,10 @@ func (r *Runtime) Run(ctx context.Context, supportedTaskTypes []string, capacity
 	}
 	r.capacity = capacity
 	r.semaphore = make(chan struct{}, capacity)
+	if err := r.initGRPCClient(ctx); err != nil {
+		return err
+	}
+	defer r.closeGRPCClient()
 	registration, err := r.register(ctx, domain.WorkerRegistration{
 		Hostname:           hostname,
 		Version:            r.cfg.Version,
@@ -163,6 +173,41 @@ func (r *Runtime) reportFailure(ctx context.Context, assignment domain.Assignmen
 }
 
 func (r *Runtime) register(ctx context.Context, payload domain.WorkerRegistration) (domain.WorkerRegistrationResult, error) {
+	if r.grpcClient != nil {
+		resp, err := r.grpcClient.RegisterWorker(r.withBearerToken(ctx, r.cfg.WorkerBootstrapToken), &heliosv1.WorkerRegistration{
+			Hostname:           payload.Hostname,
+			Version:            payload.Version,
+			SupportedTaskTypes: append([]string(nil), payload.SupportedTaskTypes...),
+			Capacity:           int32(payload.Capacity),
+			CpuCapacityUnits:   int32(payload.CPUCapacityUnits),
+			MemoryCapacityMb:   int32(payload.MemoryCapacityMB),
+		})
+		if err != nil {
+			return domain.WorkerRegistrationResult{}, err
+		}
+		return domain.WorkerRegistrationResult{
+			Worker: domain.WorkerSnapshot{
+				WorkerID:           resp.GetWorker().GetWorkerId(),
+				Hostname:           resp.GetWorker().GetHostname(),
+				Version:            resp.GetWorker().GetVersion(),
+				SupportedTaskTypes: append([]string(nil), resp.GetWorker().GetSupportedTaskTypes()...),
+				Capacity:           int(resp.GetWorker().GetCapacity()),
+				RunningTaskCount:   int(resp.GetWorker().GetRunningTaskCount()),
+				FreeSlots:          int(resp.GetWorker().GetFreeSlots()),
+				QueueDepth:         int(resp.GetWorker().GetQueueDepth()),
+				CPULoad:            resp.GetWorker().GetCpuLoad(),
+				CPUCapacityUnits:   int(resp.GetWorker().GetCpuCapacityUnits()),
+				AllocatedCPUUnits:  int(resp.GetWorker().GetAllocatedCpuUnits()),
+				MemoryUsedMB:       int(resp.GetWorker().GetMemoryUsedMb()),
+				MemoryCapacityMB:   int(resp.GetWorker().GetMemoryCapacityMb()),
+				AllocatedMemoryMB:  int(resp.GetWorker().GetAllocatedMemoryMb()),
+				LastHeartbeatAt:    resp.GetWorker().GetLastHeartbeatAt().AsTime(),
+				Health:             domain.WorkerHealth(resp.GetWorker().GetHealth()),
+				RegisteredAt:       resp.GetWorker().GetRegisteredAt().AsTime(),
+			},
+			Token: resp.GetWorkerToken(),
+		}, nil
+	}
 	var registration domain.WorkerRegistrationResult
 	if err := r.postAndDecode(ctx, "/api/v1/workers/register", payload, &registration, r.cfg.WorkerBootstrapToken); err != nil {
 		return domain.WorkerRegistrationResult{}, err
@@ -172,6 +217,19 @@ func (r *Runtime) register(ctx context.Context, payload domain.WorkerRegistratio
 
 func (r *Runtime) heartbeat(ctx context.Context) error {
 	payload := r.resourceSnapshot()
+	if r.grpcClient != nil {
+		_, err := r.grpcClient.HeartbeatWorker(r.withBearerToken(ctx, r.workerToken), &heliosv1.HeartbeatWorkerRequest{
+			WorkerId: r.worker.WorkerID,
+			Heartbeat: &heliosv1.WorkerHeartbeat{
+				CpuLoad:          payload.CPULoad,
+				MemoryUsedMb:     int32(payload.MemoryUsedMB),
+				FreeSlots:        int32(payload.FreeSlots),
+				QueueDepth:       int32(payload.QueueDepth),
+				RunningTaskCount: int32(payload.RunningTaskCount),
+			},
+		})
+		return err
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -217,7 +275,102 @@ func (r *Runtime) resourceSnapshot() domain.WorkerHeartbeat {
 }
 
 func (r *Runtime) post(ctx context.Context, path string, payload any) error {
+	if r.grpcClient != nil {
+		return r.postGRPC(ctx, path, payload)
+	}
 	return r.postAndDecode(ctx, path, payload, nil, r.workerToken)
+}
+
+func (r *Runtime) initGRPCClient(ctx context.Context) error {
+	target := strings.TrimSpace(r.cfg.ControlPlaneGRPCAddress)
+	if target == "" {
+		return nil
+	}
+	conn, err := grpc.DialContext(
+		ctx,
+		target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return fmt.Errorf("dial control-plane grpc: %w", err)
+	}
+	r.grpcConn = conn
+	r.grpcClient = heliosv1.NewControlPlaneServiceClient(conn)
+	return nil
+}
+
+func (r *Runtime) closeGRPCClient() {
+	if r.grpcConn != nil {
+		_ = r.grpcConn.Close()
+	}
+}
+
+func (r *Runtime) withBearerToken(ctx context.Context, token string) context.Context {
+	if strings.TrimSpace(token) == "" {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+}
+
+func (r *Runtime) postGRPC(ctx context.Context, path string, payload any) error {
+	callCtx := r.withBearerToken(ctx, r.workerToken)
+	switch req := payload.(type) {
+	case domain.StartTaskRequest:
+		workflowID, taskID, err := workflowAndTaskFromPath(path)
+		if err != nil {
+			return err
+		}
+		_, err = r.grpcClient.StartTaskExecution(callCtx, &heliosv1.StartTaskExecutionRequest{
+			WorkflowId: workflowID,
+			TaskId:     taskID,
+			WorkerId:   req.WorkerID,
+			AttemptId:  req.AttemptID,
+			StartedAt:  req.StartedAt,
+			TraceId:    req.TraceID,
+			ReasonHint: req.ReasonHint,
+		})
+		return err
+	case domain.CompleteTaskRequest:
+		workflowID, taskID, err := workflowAndTaskFromPath(path)
+		if err != nil {
+			return err
+		}
+		_, err = r.grpcClient.CompleteTaskExecution(callCtx, &heliosv1.CompleteTaskExecutionRequest{
+			WorkflowId:    workflowID,
+			TaskId:        taskID,
+			WorkerId:      req.WorkerID,
+			AttemptId:     req.AttemptID,
+			OutputPayload: append([]byte(nil), req.OutputPayload...),
+			TraceId:       req.TraceID,
+		})
+		return err
+	case domain.FailTaskRequest:
+		workflowID, taskID, err := workflowAndTaskFromPath(path)
+		if err != nil {
+			return err
+		}
+		_, err = r.grpcClient.FailTaskExecution(callCtx, &heliosv1.FailTaskExecutionRequest{
+			WorkflowId: workflowID,
+			TaskId:     taskID,
+			WorkerId:   req.WorkerID,
+			AttemptId:  req.AttemptID,
+			Error:      req.Error,
+			Retryable:  req.Retryable,
+			TraceId:    req.TraceID,
+		})
+		return err
+	default:
+		return fmt.Errorf("unsupported grpc payload type %T", payload)
+	}
+}
+
+func workflowAndTaskFromPath(path string) (string, string, error) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 6 {
+		return "", "", fmt.Errorf("unexpected task path %q", path)
+	}
+	return parts[3], parts[5], nil
 }
 
 func (r *Runtime) postAndDecode(ctx context.Context, path string, payload any, target any, bearerToken string) error {

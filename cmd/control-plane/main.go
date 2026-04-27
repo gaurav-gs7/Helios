@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -91,14 +92,29 @@ func main() {
 		WriteTimeout:      cfg.HTTPWriteTimeout,
 		IdleTimeout:       cfg.HTTPIdleTimeout,
 	}
+	grpcServer := server.NewGRPCServer()
+	grpcListener, err := net.Listen("tcp", cfg.GRPCAddress)
+	if err != nil {
+		logger.Error("listen grpc", "addr", cfg.GRPCAddress, "err", err)
+		os.Exit(1)
+	}
+	defer grpcListener.Close()
 	go func() {
 		<-ctx.Done()
+		grpcServer.GracefulStop()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
 		defer shutdownCancel()
 		_ = httpServer.Shutdown(shutdownCtx)
 	}()
 
 	logger.Info("control plane listening", "addr", cfg.HTTPAddress)
+	logger.Info("control plane grpc listening", "addr", cfg.GRPCAddress)
+	go func() {
+		if err := grpcServer.Serve(grpcListener); err != nil && ctx.Err() == nil {
+			logger.Error("control plane grpc failed", "err", err)
+			cancel()
+		}
+	}()
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("control plane failed", "err", err)
 		os.Exit(1)

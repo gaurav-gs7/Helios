@@ -11,7 +11,9 @@ type Config struct {
 	ServiceName             string
 	Version                 string
 	HTTPAddress             string
+	GRPCAddress             string
 	ControlPlaneURL         string
+	ControlPlaneGRPCAddress string
 	DatabaseURL             string
 	NATSURL                 string
 	SchedulerTick           time.Duration
@@ -40,6 +42,7 @@ func LoadControlPlane() (Config, error) {
 	cfg := base()
 	cfg.ServiceName = "helios-control-plane"
 	cfg.HTTPAddress = env("HELIOS_HTTP_ADDR", ":8080")
+	cfg.GRPCAddress = env("HELIOS_GRPC_ADDR", ":8081")
 	cfg.DatabaseURL = env("HELIOS_DATABASE_URL", "postgres://helios:helios@localhost:5432/helios?sslmode=disable")
 	cfg.NATSURL = env("HELIOS_NATS_URL", "nats://localhost:4222")
 	cfg.SchedulerTick = envDuration("HELIOS_SCHEDULER_TICK", time.Second)
@@ -77,6 +80,7 @@ func LoadWorker() Config {
 	cfg := base()
 	cfg.ServiceName = "helios-worker"
 	cfg.ControlPlaneURL = env("HELIOS_CONTROL_PLANE_URL", "http://localhost:8080")
+	cfg.ControlPlaneGRPCAddress = env("HELIOS_CONTROL_PLANE_GRPC_ADDR", "localhost:8081")
 	cfg.NATSURL = env("HELIOS_NATS_URL", "nats://localhost:4222")
 	cfg.WorkerHeartbeatInterval = envDuration("HELIOS_WORKER_HEARTBEAT_INTERVAL", 5*time.Second)
 	cfg.Version = env("HELIOS_WORKER_VERSION", cfg.Version)

@@ -65,6 +65,7 @@ services:
       TZ: ${TZ:-Asia/Kolkata}
       HELIOS_TIMEZONE: ${HELIOS_TIMEZONE:-Asia/Kolkata}
       HELIOS_HTTP_ADDR: ":8080"
+      HELIOS_GRPC_ADDR: ":8081"
       HELIOS_DATABASE_URL: postgres://helios:helios@postgres:5432/helios?sslmode=disable
       HELIOS_NATS_URL: nats://nats:4222
       HELIOS_PLANNER_URL: http://planner:8090
@@ -78,6 +79,7 @@ services:
       HELIOS_HEARTBEAT_DEAD_AFTER: 30s
     ports:
       - "8080:8080"
+      - "8081:8081"
 
   worker:
     build:
@@ -93,6 +95,7 @@ services:
       TZ: ${TZ:-Asia/Kolkata}
       HELIOS_TIMEZONE: ${HELIOS_TIMEZONE:-Asia/Kolkata}
       HELIOS_CONTROL_PLANE_URL: http://control-plane:8080
+      HELIOS_CONTROL_PLANE_GRPC_ADDR: control-plane:8081
       HELIOS_NATS_URL: nats://nats:4222
       HELIOS_WORKER_BOOTSTRAP_TOKEN: change-me-worker-bootstrap-token
       HELIOS_WORKER_HEARTBEAT_INTERVAL: 5s
