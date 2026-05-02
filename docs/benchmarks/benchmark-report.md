@@ -30,14 +30,14 @@ The benchmark submitted 5 workflow instances using the default example workflow.
 
 Each workflow contains 6 DAG tasks:
 
-- `validate_records`
-- `enrich_risk_features`
-- `score_fraud_risk`
-- `aggregate_risk_results`
-- `embed_text_batch`
-- `persist_artifact`
+- `validate_payload`
+- `transform_records`
+- `model_inference`
+- `aggregate_metrics`
+- `write_artifact`
+- `notify_webhook`
 
-The `score_fraud_risk` task intentionally fails on its first attempt with a retryable error. This means the benchmark exercises retry/backoff and attempt-aware result handling, not just happy-path task execution.
+The `model_inference` task intentionally fails on its first attempt with a retryable error. This means the benchmark exercises retry/backoff and attempt-aware result handling, not just happy-path task execution.
 
 ## Results
 
@@ -90,7 +90,7 @@ This benchmark demonstrates:
 
 - Single active worker limits task throughput.
 - The sample DAG has a long critical path, so not every task can run in parallel.
-- Retry backoff in `score_fraud_risk` intentionally increases workflow latency.
+- Retry backoff in `model_inference` intentionally increases workflow latency.
 - Poll-based benchmark measurement adds up to 2 seconds of observation delay.
 - Docker Desktop overhead is visible on an 8 GB MacBook Air when Prometheus and Grafana are also running.
 

@@ -13,14 +13,14 @@ func TestValidateAcceptsValidDAG(t *testing.T) {
 		Tasks: []domain.TaskSpec{
 			{
 				TaskID:         "extract",
-				TaskType:       "validate_records",
+				TaskType:       "validate_payload",
 				InputPayload:   json.RawMessage(`{"records":[{"id":"txn-1","amount":10,"currency":"usd","merchant_id":"m1","country":"us"}]}`),
 				TimeoutSeconds: 10,
 				RetryPolicy:    domain.RetryPolicy{MaxAttempts: 3},
 			},
 			{
 				TaskID:         "transform",
-				TaskType:       "enrich_risk_features",
+				TaskType:       "transform_records",
 				Dependencies:   []string{"extract"},
 				InputPayload:   json.RawMessage(`{"records":[{"id":"txn-1","amount":10,"currency":"usd","merchant_id":"m1","country":"us"}]}`),
 				TimeoutSeconds: 10,
@@ -39,7 +39,7 @@ func TestValidateRejectsCycle(t *testing.T) {
 		Tasks: []domain.TaskSpec{
 			{
 				TaskID:         "a",
-				TaskType:       "validate_records",
+				TaskType:       "validate_payload",
 				Dependencies:   []string{"b"},
 				InputPayload:   json.RawMessage(`{}`),
 				TimeoutSeconds: 10,
@@ -47,7 +47,7 @@ func TestValidateRejectsCycle(t *testing.T) {
 			},
 			{
 				TaskID:         "b",
-				TaskType:       "enrich_risk_features",
+				TaskType:       "transform_records",
 				Dependencies:   []string{"a"},
 				InputPayload:   json.RawMessage(`{}`),
 				TimeoutSeconds: 10,

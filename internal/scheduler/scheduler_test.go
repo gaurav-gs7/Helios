@@ -11,7 +11,7 @@ func TestPickWorkerChoosesLeastLoadedEligibleWorker(t *testing.T) {
 	workers := []domain.WorkerSnapshot{
 		{
 			WorkerID:           "worker-busy",
-			SupportedTaskTypes: []string{"validate_records"},
+			SupportedTaskTypes: []string{"validate_payload"},
 			Capacity:           4,
 			RunningTaskCount:   3,
 			FreeSlots:          1,
@@ -19,7 +19,7 @@ func TestPickWorkerChoosesLeastLoadedEligibleWorker(t *testing.T) {
 		},
 		{
 			WorkerID:           "worker-ready",
-			SupportedTaskTypes: []string{"validate_records", "score_fraud_risk"},
+			SupportedTaskTypes: []string{"validate_payload", "model_inference"},
 			Capacity:           4,
 			RunningTaskCount:   1,
 			FreeSlots:          3,
@@ -27,7 +27,7 @@ func TestPickWorkerChoosesLeastLoadedEligibleWorker(t *testing.T) {
 		},
 	}
 
-	selected, ok, _ := pickWorker(workers, domain.TaskRecord{TaskType: "validate_records"}, PolicyLeastLoaded)
+	selected, ok, _ := pickWorker(workers, domain.TaskRecord{TaskType: "validate_payload"}, PolicyLeastLoaded)
 	if !ok {
 		t.Fatal("expected a worker to be selected")
 	}
@@ -40,13 +40,13 @@ func TestPickWorkerRejectsUnsupportedTaskTypes(t *testing.T) {
 	workers := []domain.WorkerSnapshot{
 		{
 			WorkerID:           "worker-1",
-			SupportedTaskTypes: []string{"validate_records"},
+			SupportedTaskTypes: []string{"validate_payload"},
 			Capacity:           2,
 			FreeSlots:          2,
 		},
 	}
 
-	if _, ok, _ := pickWorker(workers, domain.TaskRecord{TaskType: "score_fraud_risk"}, PolicyLeastLoaded); ok {
+	if _, ok, _ := pickWorker(workers, domain.TaskRecord{TaskType: "model_inference"}, PolicyLeastLoaded); ok {
 		t.Fatal("expected no worker to be selected for unsupported task type")
 	}
 }
@@ -55,7 +55,7 @@ func TestPickWorkerResourceAwareRespectsReservations(t *testing.T) {
 	workers := []domain.WorkerSnapshot{
 		{
 			WorkerID:           "small-worker",
-			SupportedTaskTypes: []string{"score_fraud_risk"},
+			SupportedTaskTypes: []string{"model_inference"},
 			Capacity:           2,
 			FreeSlots:          2,
 			CPUCapacityUnits:   500,
@@ -63,7 +63,7 @@ func TestPickWorkerResourceAwareRespectsReservations(t *testing.T) {
 		},
 		{
 			WorkerID:           "resource-fit-worker",
-			SupportedTaskTypes: []string{"score_fraud_risk"},
+			SupportedTaskTypes: []string{"model_inference"},
 			Capacity:           2,
 			FreeSlots:          2,
 			CPUCapacityUnits:   2000,
@@ -72,7 +72,7 @@ func TestPickWorkerResourceAwareRespectsReservations(t *testing.T) {
 		},
 	}
 
-	task := domain.TaskRecord{TaskType: "score_fraud_risk", CPUUnits: 1000, MemoryMB: 512}
+	task := domain.TaskRecord{TaskType: "model_inference", CPUUnits: 1000, MemoryMB: 512}
 	selected, ok, reason := pickWorker(workers, task, PolicyResourceAware)
 	if !ok {
 		t.Fatalf("expected resource-aware policy to find a worker, reason=%s", reason)
@@ -86,7 +86,7 @@ func TestPickWorkerPriorityFirstPrefersFreeSlots(t *testing.T) {
 	workers := []domain.WorkerSnapshot{
 		{
 			WorkerID:           "nearly-full",
-			SupportedTaskTypes: []string{"validate_records"},
+			SupportedTaskTypes: []string{"validate_payload"},
 			Capacity:           4,
 			RunningTaskCount:   3,
 			FreeSlots:          1,
@@ -94,7 +94,7 @@ func TestPickWorkerPriorityFirstPrefersFreeSlots(t *testing.T) {
 		},
 		{
 			WorkerID:           "more-headroom",
-			SupportedTaskTypes: []string{"validate_records"},
+			SupportedTaskTypes: []string{"validate_payload"},
 			Capacity:           4,
 			RunningTaskCount:   1,
 			FreeSlots:          3,
@@ -102,7 +102,7 @@ func TestPickWorkerPriorityFirstPrefersFreeSlots(t *testing.T) {
 		},
 	}
 
-	selected, ok, _ := pickWorker(workers, domain.TaskRecord{TaskType: "validate_records", Priority: 100}, PolicyPriorityFirst)
+	selected, ok, _ := pickWorker(workers, domain.TaskRecord{TaskType: "validate_payload", Priority: 100}, PolicyPriorityFirst)
 	if !ok {
 		t.Fatal("expected a worker to be selected")
 	}

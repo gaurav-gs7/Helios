@@ -508,8 +508,8 @@ func analyzeWorkflowSpec(spec domain.WorkflowSpec) dryRunWorkflowAnalysis {
 		for _, dep := range task.Dependencies {
 			dependents[dep] = append(dependents[dep], task.TaskID)
 		}
-		if task.IdempotencyKey == "" && task.TaskType == "persist_artifact" {
-			analysis.RiskWarnings = append(analysis.RiskWarnings, "persist_artifact should include an idempotency_key for side-effect safety")
+		if task.IdempotencyKey == "" && (task.TaskType == "write_artifact" || task.TaskType == "notify_webhook") {
+			analysis.RiskWarnings = append(analysis.RiskWarnings, fmt.Sprintf("%s should include an idempotency_key for side-effect safety", task.TaskType))
 		}
 		if task.RetryPolicy.MaxAttempts > 5 {
 			analysis.RiskWarnings = append(analysis.RiskWarnings, fmt.Sprintf("%s has high max_attempts=%d", task.TaskID, task.RetryPolicy.MaxAttempts))

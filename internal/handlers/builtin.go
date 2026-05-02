@@ -1,13 +1,20 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,21 +32,16 @@ type ExecutionError struct {
 	Retryable bool
 }
 
-type transactionRecord struct {
-	ID         string  `json:"id"`
-	Amount     float64 `json:"amount"`
-	Currency   string  `json:"currency"`
-	MerchantID string  `json:"merchant_id"`
-	Country    string  `json:"country"`
-	Channel    string  `json:"channel,omitempty"`
-}
+type genericRecord map[string]any
 
-type riskScore struct {
+type inferencePrediction struct {
 	ID           string   `json:"id"`
-	RiskScore    float64  `json:"risk_score"`
+	Score        float64  `json:"score"`
 	Decision     string   `json:"decision"`
 	Contributors []string `json:"contributors"`
 }
+
+const defaultArtifactBasePath = "/tmp/helios-artifacts"
 
 func (e *ExecutionError) Error() string {
 	if e == nil || e.Err == nil {
@@ -50,13 +52,12 @@ func (e *ExecutionError) Error() string {
 
 func Builtins() map[string]Handler {
 	return map[string]Handler{
-		"failure_probe":          failureProbeHandler,
-		"validate_records":       validateRecordsHandler,
-		"enrich_risk_features":   enrichRiskFeaturesHandler,
-		"score_fraud_risk":       scoreFraudRiskHandler,
-		"aggregate_risk_results": aggregateRiskResultsHandler,
-		"persist_artifact":       persistArtifactHandler,
-		"embed_text_batch":       embedTextBatchHandler,
+		"validate_payload":  validatePayloadHandler,
+		"transform_records": transformRecordsHandler,
+		"model_inference":   modelInferenceHandler,
+		"aggregate_metrics": aggregateMetricsHandler,
+		"write_artifact":    writeArtifactHandler,
+		"notify_webhook":    notifyWebhookHandler,
 	}
 }
 
@@ -86,47 +87,46 @@ func errorAs(err error, target **ExecutionError) bool {
 	return false
 }
 
-func failureProbeHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
+func validatePayloadHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
 	var input struct {
-		FailUntilAttempt int  `json:"fail_until_attempt"`
-		Retryable        bool `json:"retryable"`
+		Records         []genericRecord   `json:"records"`
+		RequiredFields  []string          `json:"required_fields"`
+		FieldTypes      map[string]string `json:"field_types"`
+		UniqueKey       string            `json:"unique_key"`
+		RejectOnInvalid bool              `json:"reject_on_invalid"`
 	}
 	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode failure_probe payload: %w", err)
-	}
-	if exec.Assignment.Attempt <= input.FailUntilAttempt {
-		if input.Retryable {
-			return nil, retryable("simulated failure at attempt %d", exec.Assignment.Attempt)
-		}
-		return nil, nonRetryable("simulated failure at attempt %d", exec.Assignment.Attempt)
-	}
-	return mustMarshal(map[string]any{
-		"status":  "recovered",
-		"attempt": exec.Assignment.Attempt,
-	}), nil
-}
-
-func validateRecordsHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
-	var input struct {
-		Records []transactionRecord `json:"records"`
-	}
-	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode validate_records payload: %w", err)
+		return nil, nonRetryable("decode validate_payload payload: %w", err)
 	}
 	if len(input.Records) == 0 {
-		return nil, nonRetryable("validate_records requires at least one record")
+		return nil, nonRetryable("validate_payload requires at least one record")
 	}
-	valid := make([]transactionRecord, 0, len(input.Records))
-	rejected := make([]map[string]string, 0)
-	seen := make(map[string]struct{}, len(input.Records))
-	for _, record := range input.Records {
-		reason := validateTransaction(record, seen)
-		if reason != "" {
-			rejected = append(rejected, map[string]string{"id": record.ID, "reason": reason})
+	seen := map[string]struct{}{}
+	valid := make([]genericRecord, 0, len(input.Records))
+	rejected := make([]map[string]any, 0)
+	for index, record := range input.Records {
+		reasons := validateRecord(record, input.RequiredFields, input.FieldTypes)
+		if input.UniqueKey != "" {
+			key := strings.TrimSpace(fmt.Sprint(record[input.UniqueKey]))
+			if key == "" {
+				reasons = append(reasons, fmt.Sprintf("missing unique key %s", input.UniqueKey))
+			} else if _, ok := seen[key]; ok {
+				reasons = append(reasons, fmt.Sprintf("duplicate unique key %s=%s", input.UniqueKey, key))
+			}
+			seen[key] = struct{}{}
+		}
+		if len(reasons) > 0 {
+			rejected = append(rejected, map[string]any{
+				"index":   index,
+				"record":  record,
+				"reasons": reasons,
+			})
 			continue
 		}
-		seen[record.ID] = struct{}{}
-		valid = append(valid, normalizeTransaction(record))
+		valid = append(valid, cloneRecord(record))
+	}
+	if input.RejectOnInvalid && len(rejected) > 0 {
+		return nil, nonRetryable("validate_payload rejected %d invalid records", len(rejected))
 	}
 	return mustMarshal(map[string]any{
 		"status":        "validated",
@@ -138,285 +138,506 @@ func validateRecordsHandler(_ context.Context, exec ExecutionContext) (json.RawM
 	}), nil
 }
 
-func enrichRiskFeaturesHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
+func transformRecordsHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
 	var input struct {
-		Records []transactionRecord `json:"records"`
+		Records         []genericRecord   `json:"records"`
+		SelectFields    []string          `json:"select_fields"`
+		RenameFields    map[string]string `json:"rename_fields"`
+		AddFields       map[string]any    `json:"add_fields"`
+		UppercaseFields []string          `json:"uppercase_fields"`
+		LowercaseFields []string          `json:"lowercase_fields"`
+		RoundFields     map[string]int    `json:"round_fields"`
 	}
 	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode enrich_risk_features payload: %w", err)
+		return nil, nonRetryable("decode transform_records payload: %w", err)
 	}
 	if len(input.Records) == 0 {
-		return nil, nonRetryable("enrich_risk_features requires records")
+		return nil, nonRetryable("transform_records requires records")
 	}
-	features := make([]map[string]any, 0, len(input.Records))
+	transformed := make([]genericRecord, 0, len(input.Records))
 	for _, record := range input.Records {
-		normalized := normalizeTransaction(record)
-		features = append(features, map[string]any{
-			"id":                 normalized.ID,
-			"amount_bucket":      amountBucket(normalized.Amount),
-			"is_cross_border":    normalized.Country != "US",
-			"is_high_risk_geo":   isHighRiskCountry(normalized.Country),
-			"merchant_hash":      shortHash(normalized.MerchantID),
-			"channel":            normalized.Channel,
-			"normalized_amount":  math.Round(normalized.Amount*100) / 100,
-			"feature_version":    "risk-features-v1",
-			"idempotency_key":    exec.Assignment.IdempotencyKey,
-			"source_attempt":     exec.Assignment.Attempt,
-			"source_workflow_id": exec.Assignment.WorkflowID,
-		})
+		next := cloneRecord(record)
+		if len(input.SelectFields) > 0 {
+			next = selectFields(next, input.SelectFields)
+		}
+		for from, to := range input.RenameFields {
+			if value, ok := next[from]; ok {
+				next[to] = value
+				delete(next, from)
+			}
+		}
+		for key, value := range input.AddFields {
+			next[key] = value
+		}
+		normalizeTextFields(next, input.UppercaseFields, strings.ToUpper)
+		normalizeTextFields(next, input.LowercaseFields, strings.ToLower)
+		for field, places := range input.RoundFields {
+			if value, ok := numberValue(next[field]); ok {
+				next[field] = round(value, places)
+			}
+		}
+		transformed = append(transformed, next)
 	}
 	return mustMarshal(map[string]any{
-		"status":    "features_built",
-		"features":  features,
-		"count":     len(features),
-		"checksum":  checksum(features),
-		"generated": time.Now().Format(time.RFC3339),
+		"status":   "transformed",
+		"count":    len(transformed),
+		"records":  transformed,
+		"checksum": checksum(transformed),
 	}), nil
 }
 
-func scoreFraudRiskHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
+func modelInferenceHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
 	var input struct {
-		Records          []transactionRecord `json:"records"`
-		FailUntilAttempt int                 `json:"fail_until_attempt,omitempty"`
-		RetryableFailure bool                `json:"retryable_failure,omitempty"`
+		Records          []genericRecord `json:"records"`
+		ModelName        string          `json:"model_name"`
+		IDField          string          `json:"id_field"`
+		FailUntilAttempt int             `json:"fail_until_attempt"`
+		RetryableFailure bool            `json:"retryable_failure"`
+		Rules            []struct {
+			Field       string  `json:"field"`
+			Operator    string  `json:"operator"`
+			Value       any     `json:"value"`
+			Values      []any   `json:"values"`
+			Score       float64 `json:"score"`
+			Contributor string  `json:"contributor"`
+		} `json:"rules"`
+		DecisionThresholds map[string]float64 `json:"decision_thresholds"`
 	}
 	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode score_fraud_risk payload: %w", err)
+		return nil, nonRetryable("decode model_inference payload: %w", err)
 	}
 	if exec.Assignment.Attempt <= input.FailUntilAttempt {
 		if input.RetryableFailure {
-			return nil, retryable("transient model-serving error at attempt %d", exec.Assignment.Attempt)
+			return nil, retryable("transient model inference failure at attempt %d", exec.Assignment.Attempt)
 		}
-		return nil, nonRetryable("non-retryable model input error at attempt %d", exec.Assignment.Attempt)
+		return nil, nonRetryable("non-retryable model inference failure at attempt %d", exec.Assignment.Attempt)
 	}
 	if len(input.Records) == 0 {
-		return nil, nonRetryable("score_fraud_risk requires records")
+		return nil, nonRetryable("model_inference requires records")
 	}
-	scores := make([]riskScore, 0, len(input.Records))
-	for _, record := range input.Records {
-		scores = append(scores, scoreTransaction(normalizeTransaction(record)))
+	if input.ModelName == "" {
+		input.ModelName = "rules-v1"
 	}
-	return mustMarshal(map[string]any{
-		"status":        "scored",
-		"model":         "fraud-risk-rules-v1",
-		"attempt":       exec.Assignment.Attempt,
-		"scores":        scores,
-		"score_count":   len(scores),
-		"max_risk":      maxRisk(scores),
-		"decision_hash": checksum(scores),
-	}), nil
-}
-
-func aggregateRiskResultsHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
-	var input struct {
-		Scores []riskScore `json:"scores"`
+	if input.IDField == "" {
+		input.IDField = "id"
 	}
-	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode aggregate_risk_results payload: %w", err)
-	}
-	if len(input.Scores) == 0 {
-		return nil, nonRetryable("aggregate_risk_results requires scores")
-	}
-	var sum, max float64
-	decisionCounts := map[string]int{"approve": 0, "review": 0, "block": 0}
-	for _, score := range input.Scores {
-		sum += score.RiskScore
-		if score.RiskScore > max {
-			max = score.RiskScore
+	predictions := make([]inferencePrediction, 0, len(input.Records))
+	for index, record := range input.Records {
+		score := 0.05
+		contributors := []string{"base"}
+		for _, rule := range input.Rules {
+			if ruleMatches(record[rule.Field], rule.Operator, rule.Value, rule.Values) {
+				score += rule.Score
+				if strings.TrimSpace(rule.Contributor) != "" {
+					contributors = append(contributors, rule.Contributor)
+				}
+			}
 		}
-		decisionCounts[score.Decision]++
+		score = math.Min(0.99, round(score, 3))
+		predictions = append(predictions, inferencePrediction{
+			ID:           recordID(record, input.IDField, index),
+			Score:        score,
+			Decision:     decisionForScore(score, input.DecisionThresholds),
+			Contributors: contributors,
+		})
 	}
-	average := math.Round((sum/float64(len(input.Scores)))*1000) / 1000
 	return mustMarshal(map[string]any{
-		"status":          "aggregated",
-		"score_count":     len(input.Scores),
-		"avg_risk":        average,
-		"max_risk":        max,
-		"decision_counts": decisionCounts,
-		"checksum":        checksum(input.Scores),
+		"status":           "inferred",
+		"model":            input.ModelName,
+		"attempt":          exec.Assignment.Attempt,
+		"prediction_count": len(predictions),
+		"predictions":      predictions,
+		"checksum":         checksum(predictions),
 	}), nil
 }
 
-func persistArtifactHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
+func aggregateMetricsHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
 	var input struct {
-		Sink     string          `json:"sink"`
-		Dataset  string          `json:"dataset"`
-		Artifact json.RawMessage `json:"artifact"`
+		Predictions []inferencePrediction `json:"predictions"`
 	}
 	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode persist_artifact payload: %w", err)
+		return nil, nonRetryable("decode aggregate_metrics payload: %w", err)
 	}
-	if strings.TrimSpace(input.Sink) == "" || strings.TrimSpace(input.Dataset) == "" {
-		return nil, nonRetryable("persist_artifact requires sink and dataset")
+	if len(input.Predictions) == 0 {
+		return nil, nonRetryable("aggregate_metrics requires predictions")
+	}
+	decisionCounts := map[string]int{}
+	var total float64
+	var maxScore float64
+	for _, prediction := range input.Predictions {
+		decisionCounts[prediction.Decision]++
+		total += prediction.Score
+		if prediction.Score > maxScore {
+			maxScore = prediction.Score
+		}
+	}
+	return mustMarshal(map[string]any{
+		"status":           "aggregated",
+		"prediction_count": len(input.Predictions),
+		"avg_score":        round(total/float64(len(input.Predictions)), 3),
+		"max_score":        round(maxScore, 3),
+		"decision_counts":  decisionCounts,
+		"checksum":         checksum(input.Predictions),
+	}), nil
+}
+
+func writeArtifactHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
+	var input struct {
+		Sink      string          `json:"sink"`
+		Dataset   string          `json:"dataset"`
+		BasePath  string          `json:"base_path"`
+		Artifact  json.RawMessage `json:"artifact"`
+		Overwrite bool            `json:"overwrite"`
+	}
+	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
+		return nil, nonRetryable("decode write_artifact payload: %w", err)
+	}
+	if input.Sink == "" {
+		input.Sink = "local"
+	}
+	if strings.TrimSpace(input.Dataset) == "" {
+		return nil, nonRetryable("write_artifact requires dataset")
 	}
 	if len(input.Artifact) == 0 || string(input.Artifact) == "null" {
-		return nil, nonRetryable("persist_artifact requires artifact")
+		return nil, nonRetryable("write_artifact requires artifact")
 	}
-	artifactID := shortHash(fmt.Sprintf("%s:%s:%s:%s", input.Sink, input.Dataset, exec.Assignment.IdempotencyKey, checksum(input.Artifact)))
-	return mustMarshal(map[string]any{
-		"status":          "persisted",
+	artifactChecksum := checksum(json.RawMessage(input.Artifact))
+	artifactID := shortHash(fmt.Sprintf("%s:%s:%s", input.Dataset, exec.Assignment.IdempotencyKey, artifactChecksum))
+	out := map[string]any{
+		"status":          "recorded",
 		"sink":            input.Sink,
 		"dataset":         input.Dataset,
 		"artifact_id":     artifactID,
 		"idempotency_key": exec.Assignment.IdempotencyKey,
-		"checksum":        checksum(input.Artifact),
+		"checksum":        artifactChecksum,
 		"recorded_at":     time.Now().Format(time.RFC3339),
-	}), nil
+	}
+	if input.Sink == "manifest" {
+		out["manifest_only"] = true
+		return mustMarshal(out), nil
+	}
+	if input.Sink != "local" {
+		return nil, nonRetryable("write_artifact unsupported sink %q", input.Sink)
+	}
+	basePath, err := resolveArtifactBasePath(input.BasePath)
+	if err != nil {
+		return nil, nonRetryable("write_artifact invalid base_path: %w", err)
+	}
+	path, err := writeLocalArtifact(basePath, input.Dataset, artifactID, input.Artifact, input.Overwrite)
+	if err != nil {
+		return nil, retryable("write local artifact: %w", err)
+	}
+	out["status"] = "written"
+	out["path"] = path
+	return mustMarshal(out), nil
 }
 
-func embedTextBatchHandler(_ context.Context, exec ExecutionContext) (json.RawMessage, error) {
+func notifyWebhookHandler(ctx context.Context, exec ExecutionContext) (json.RawMessage, error) {
 	var input struct {
-		Documents []struct {
-			ID   string `json:"id"`
-			Text string `json:"text"`
-		} `json:"documents"`
-		Dimensions int `json:"dimensions"`
+		URL            string            `json:"url"`
+		Method         string            `json:"method"`
+		Headers        map[string]string `json:"headers"`
+		Body           json.RawMessage   `json:"body"`
+		DryRun         bool              `json:"dry_run"`
+		TimeoutSeconds int               `json:"timeout_seconds"`
 	}
 	if err := json.Unmarshal(exec.Assignment.InputPayload, &input); err != nil {
-		return nil, nonRetryable("decode embed_text_batch payload: %w", err)
+		return nil, nonRetryable("decode notify_webhook payload: %w", err)
 	}
-	if len(input.Documents) == 0 {
-		return nil, nonRetryable("embed_text_batch requires documents")
+	if input.Method == "" {
+		input.Method = http.MethodPost
 	}
-	if input.Dimensions <= 0 {
-		input.Dimensions = 8
+	if len(input.Body) == 0 {
+		input.Body = []byte(`{}`)
 	}
-	if input.Dimensions > 64 {
-		return nil, nonRetryable("embed_text_batch dimensions must be <= 64 for local trusted handler")
+	if input.DryRun {
+		return mustMarshal(map[string]any{
+			"status":          "dry_run",
+			"method":          input.Method,
+			"url":             input.URL,
+			"body_checksum":   checksum(json.RawMessage(input.Body)),
+			"idempotency_key": exec.Assignment.IdempotencyKey,
+		}), nil
 	}
-	embeddings := make([]map[string]any, 0, len(input.Documents))
-	for _, document := range input.Documents {
-		if strings.TrimSpace(document.ID) == "" || strings.TrimSpace(document.Text) == "" {
-			return nil, nonRetryable("embed_text_batch documents require id and text")
-		}
-		embeddings = append(embeddings, map[string]any{
-			"id":        document.ID,
-			"dimension": input.Dimensions,
-			"vector":    deterministicVector(document.Text, input.Dimensions),
-			"text_hash": shortHash(document.Text),
-		})
+	if strings.TrimSpace(input.URL) == "" {
+		return nil, nonRetryable("notify_webhook requires url unless dry_run=true")
+	}
+	parsed, err := url.Parse(input.URL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, nonRetryable("notify_webhook url is invalid")
+	}
+	if input.TimeoutSeconds <= 0 {
+		input.TimeoutSeconds = 10
+	}
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(input.TimeoutSeconds)*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(callCtx, input.Method, input.URL, bytes.NewReader(input.Body))
+	if err != nil {
+		return nil, nonRetryable("build webhook request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for key, value := range input.Headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, retryable("send webhook: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return nil, retryable("webhook returned retryable status %d: %s", resp.StatusCode, string(respBody))
+	}
+	if resp.StatusCode >= 400 {
+		return nil, nonRetryable("webhook returned non-retryable status %d: %s", resp.StatusCode, string(respBody))
 	}
 	return mustMarshal(map[string]any{
-		"status":          "embedded",
-		"embedding_model": "deterministic-local-v1",
-		"count":           len(embeddings),
-		"embeddings":      embeddings,
-		"checksum":        checksum(embeddings),
+		"status":        "delivered",
+		"status_code":   resp.StatusCode,
+		"body_checksum": checksum(json.RawMessage(input.Body)),
 	}), nil
 }
 
-func validateTransaction(record transactionRecord, seen map[string]struct{}) string {
-	if strings.TrimSpace(record.ID) == "" {
-		return "missing id"
+func validateRecord(record genericRecord, required []string, fieldTypes map[string]string) []string {
+	reasons := []string{}
+	for _, field := range required {
+		if _, ok := record[field]; !ok || isEmpty(record[field]) {
+			reasons = append(reasons, fmt.Sprintf("missing required field %s", field))
+		}
 	}
-	if _, exists := seen[record.ID]; exists {
-		return "duplicate id"
+	for field, expected := range fieldTypes {
+		if value, ok := record[field]; ok && !matchesType(value, expected) {
+			reasons = append(reasons, fmt.Sprintf("field %s must be %s", field, expected))
+		}
 	}
-	if record.Amount <= 0 {
-		return "amount must be positive"
-	}
-	if strings.TrimSpace(record.Currency) == "" {
-		return "missing currency"
-	}
-	if strings.TrimSpace(record.MerchantID) == "" {
-		return "missing merchant_id"
-	}
-	if strings.TrimSpace(record.Country) == "" {
-		return "missing country"
-	}
-	return ""
+	return reasons
 }
 
-func normalizeTransaction(record transactionRecord) transactionRecord {
-	record.ID = strings.TrimSpace(record.ID)
-	record.Currency = strings.ToUpper(strings.TrimSpace(record.Currency))
-	record.Country = strings.ToUpper(strings.TrimSpace(record.Country))
-	record.MerchantID = strings.TrimSpace(record.MerchantID)
-	record.Channel = strings.ToLower(strings.TrimSpace(record.Channel))
-	if record.Channel == "" {
-		record.Channel = "unknown"
-	}
-	record.Amount = math.Round(record.Amount*100) / 100
-	return record
-}
-
-func amountBucket(amount float64) string {
-	switch {
-	case amount >= 1000:
-		return "very_high"
-	case amount >= 500:
-		return "high"
-	case amount >= 100:
-		return "medium"
-	default:
-		return "low"
-	}
-}
-
-func isHighRiskCountry(country string) bool {
-	switch strings.ToUpper(country) {
-	case "NG", "RU", "KP", "IR":
+func isEmpty(value any) bool {
+	switch typed := value.(type) {
+	case nil:
 		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
 	default:
 		return false
 	}
 }
 
-func scoreTransaction(record transactionRecord) riskScore {
-	score := 0.05
-	contributors := []string{"base"}
-	if record.Amount >= 1000 {
-		score += 0.45
-		contributors = append(contributors, "very_high_amount")
-	} else if record.Amount >= 500 {
-		score += 0.25
-		contributors = append(contributors, "high_amount")
-	}
-	if record.Country != "US" {
-		score += 0.15
-		contributors = append(contributors, "cross_border")
-	}
-	if isHighRiskCountry(record.Country) {
-		score += 0.30
-		contributors = append(contributors, "high_risk_geo")
-	}
-	if record.Channel == "card_not_present" || record.Channel == "web" {
-		score += 0.10
-		contributors = append(contributors, "remote_channel")
-	}
-	score = math.Min(0.99, math.Round(score*1000)/1000)
-	decision := "approve"
-	if score >= 0.80 {
-		decision = "block"
-	} else if score >= 0.45 {
-		decision = "review"
-	}
-	return riskScore{
-		ID:           record.ID,
-		RiskScore:    score,
-		Decision:     decision,
-		Contributors: contributors,
+func matchesType(value any, expected string) bool {
+	switch strings.ToLower(strings.TrimSpace(expected)) {
+	case "", "any":
+		return true
+	case "string":
+		_, ok := value.(string)
+		return ok
+	case "number":
+		_, ok := numberValue(value)
+		return ok
+	case "bool", "boolean":
+		_, ok := value.(bool)
+		return ok
+	case "object":
+		_, ok := value.(map[string]any)
+		return ok
+	case "array":
+		_, ok := value.([]any)
+		return ok
+	default:
+		return false
 	}
 }
 
-func maxRisk(scores []riskScore) float64 {
-	var max float64
-	for _, score := range scores {
-		if score.RiskScore > max {
-			max = score.RiskScore
+func cloneRecord(in genericRecord) genericRecord {
+	out := make(genericRecord, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func selectFields(record genericRecord, fields []string) genericRecord {
+	selected := make(genericRecord, len(fields))
+	for _, field := range fields {
+		if value, ok := record[field]; ok {
+			selected[field] = value
 		}
 	}
-	return max
+	return selected
 }
 
-func deterministicVector(text string, dimensions int) []float64 {
-	vector := make([]float64, dimensions)
-	seed := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(text))))
-	for i := range dimensions {
-		value := int(seed[i%len(seed)])
-		vector[i] = math.Round(((float64(value)/255.0)*2-1)*10000) / 10000
+func normalizeTextFields(record genericRecord, fields []string, normalize func(string) string) {
+	for _, field := range fields {
+		if value, ok := record[field].(string); ok {
+			record[field] = normalize(strings.TrimSpace(value))
+		}
 	}
-	return vector
+}
+
+func numberValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func ruleMatches(actual any, operator string, value any, values []any) bool {
+	operator = strings.ToLower(strings.TrimSpace(operator))
+	if operator == "" {
+		operator = "eq"
+	}
+	switch operator {
+	case "eq":
+		return fmt.Sprint(actual) == fmt.Sprint(value)
+	case "ne":
+		return fmt.Sprint(actual) != fmt.Sprint(value)
+	case "in":
+		for _, candidate := range values {
+			if fmt.Sprint(actual) == fmt.Sprint(candidate) {
+				return true
+			}
+		}
+		return false
+	case "gt", "gte", "lt", "lte":
+		left, leftOK := numberValue(actual)
+		right, rightOK := numberValue(value)
+		if !leftOK || !rightOK {
+			return false
+		}
+		switch operator {
+		case "gt":
+			return left > right
+		case "gte":
+			return left >= right
+		case "lt":
+			return left < right
+		default:
+			return left <= right
+		}
+	default:
+		return false
+	}
+}
+
+func recordID(record genericRecord, field string, index int) string {
+	if value := strings.TrimSpace(fmt.Sprint(record[field])); value != "" && value != "<nil>" {
+		return value
+	}
+	return fmt.Sprintf("record-%d", index+1)
+}
+
+func decisionForScore(score float64, thresholds map[string]float64) string {
+	block := thresholds["block"]
+	review := thresholds["review"]
+	if block == 0 {
+		block = 0.8
+	}
+	if review == 0 {
+		review = 0.45
+	}
+	switch {
+	case score >= block:
+		return "block"
+	case score >= review:
+		return "review"
+	default:
+		return "approve"
+	}
+}
+
+func resolveArtifactBasePath(requested string) (string, error) {
+	root := strings.TrimSpace(os.Getenv("HELIOS_ARTIFACT_BASE_PATH"))
+	if root == "" {
+		root = defaultArtifactBasePath
+	}
+	absRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", err
+	}
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return absRoot, nil
+	}
+	candidate := filepath.Clean(requested)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(absRoot, candidate)
+	}
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absRoot, absCandidate)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path must stay under %s", absRoot)
+	}
+	return absCandidate, nil
+}
+
+func writeLocalArtifact(basePath string, dataset string, artifactID string, body []byte, overwrite bool) (string, error) {
+	if err := os.MkdirAll(basePath, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(basePath, fmt.Sprintf("%s-%s.json", safeName(dataset), artifactID))
+	if !overwrite {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func safeName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	for _, ch := range value {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			builder.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			builder.WriteRune(ch)
+		case ch == '-' || ch == '_':
+			builder.WriteRune(ch)
+		default:
+			builder.WriteRune('-')
+		}
+	}
+	out := strings.Trim(builder.String(), "-")
+	if out == "" {
+		return "artifact"
+	}
+	return out
+}
+
+func round(value float64, places int) float64 {
+	if places < 0 {
+		places = 0
+	}
+	multiplier := math.Pow10(places)
+	return math.Round(value*multiplier) / multiplier
 }
 
 func shortHash(value string) string {

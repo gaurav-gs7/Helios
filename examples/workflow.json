@@ -1,41 +1,51 @@
 {
-  "name": "fraud-ai-risk-pipeline",
+  "name": "order-risk-processing-pipeline",
   "metadata": {
     "owner": "platform",
     "use_case": "resume-demo",
-    "workload": "trusted-fraud-risk-scoring"
+    "workload": "trusted-integration-workflow"
   },
   "tasks": [
     {
-      "task_id": "validate-transaction-batch",
-      "task_type": "validate_records",
+      "task_id": "validate-order-batch",
+      "task_type": "validate_payload",
       "input_payload": {
         "records": [
           {
-            "id": "txn-1001",
+            "id": "ord-1001",
             "amount": 42.75,
             "currency": "usd",
-            "merchant_id": "merchant-a",
+            "customer_tier": "standard",
             "country": "us",
             "channel": "pos"
           },
           {
-            "id": "txn-1002",
+            "id": "ord-1002",
             "amount": 1275.2,
             "currency": "usd",
-            "merchant_id": "merchant-b",
+            "customer_tier": "new",
             "country": "ng",
             "channel": "web"
           },
           {
-            "id": "txn-1003",
+            "id": "ord-1003",
             "amount": 560.0,
             "currency": "eur",
-            "merchant_id": "merchant-c",
+            "customer_tier": "vip",
             "country": "de",
             "channel": "card_not_present"
           }
-        ]
+        ],
+        "required_fields": ["id", "amount", "currency", "customer_tier", "country"],
+        "field_types": {
+          "id": "string",
+          "amount": "number",
+          "currency": "string",
+          "customer_tier": "string",
+          "country": "string"
+        },
+        "unique_key": "id",
+        "reject_on_invalid": true
       },
       "timeout_seconds": 10,
       "priority": 80,
@@ -48,86 +58,141 @@
         "max_backoff_seconds": 20,
         "multiplier": 2
       },
-      "idempotency_key": "fraud-demo-validate-v1"
+      "idempotency_key": "order-risk-validate-v1"
     },
     {
-      "task_id": "build-risk-features",
-      "task_type": "enrich_risk_features",
-      "dependencies": ["validate-transaction-batch"],
+      "task_id": "normalize-order-records",
+      "task_type": "transform_records",
+      "dependencies": ["validate-order-batch"],
       "input_payload": {
         "records": [
           {
-            "id": "txn-1001",
+            "id": "ord-1001",
             "amount": 42.75,
             "currency": "usd",
-            "merchant_id": "merchant-a",
+            "customer_tier": "standard",
             "country": "us",
             "channel": "pos"
           },
           {
-            "id": "txn-1002",
+            "id": "ord-1002",
             "amount": 1275.2,
             "currency": "usd",
-            "merchant_id": "merchant-b",
+            "customer_tier": "new",
             "country": "ng",
             "channel": "web"
           },
           {
-            "id": "txn-1003",
+            "id": "ord-1003",
             "amount": 560.0,
             "currency": "eur",
-            "merchant_id": "merchant-c",
+            "customer_tier": "vip",
             "country": "de",
             "channel": "card_not_present"
           }
-        ]
+        ],
+        "select_fields": ["id", "amount", "currency", "customer_tier", "country", "channel"],
+        "rename_fields": {
+          "amount": "order_amount"
+        },
+        "uppercase_fields": ["currency", "country"],
+        "lowercase_fields": ["customer_tier", "channel"],
+        "round_fields": {
+          "order_amount": 2
+        },
+        "add_fields": {
+          "pipeline_version": "orders-v1"
+        }
       },
       "timeout_seconds": 10,
       "priority": 70,
-      "cpu_units": 500,
-      "memory_mb": 256,
-      "expected_duration_seconds": 4,
+      "cpu_units": 350,
+      "memory_mb": 192,
+      "expected_duration_seconds": 3,
       "retry_policy": {
         "max_attempts": 3,
         "initial_backoff_seconds": 2,
         "max_backoff_seconds": 20,
         "multiplier": 2
       },
-      "idempotency_key": "fraud-demo-features-v1"
+      "idempotency_key": "order-risk-transform-v1"
     },
     {
-      "task_id": "score-fraud-risk",
-      "task_type": "score_fraud_risk",
-      "dependencies": ["build-risk-features"],
+      "task_id": "run-risk-inference",
+      "task_type": "model_inference",
+      "dependencies": ["normalize-order-records"],
       "input_payload": {
+        "model_name": "order-risk-rules-v1",
+        "id_field": "id",
         "fail_until_attempt": 1,
         "retryable_failure": true,
         "records": [
           {
-            "id": "txn-1001",
-            "amount": 42.75,
-            "currency": "usd",
-            "merchant_id": "merchant-a",
-            "country": "us",
+            "id": "ord-1001",
+            "order_amount": 42.75,
+            "currency": "USD",
+            "customer_tier": "standard",
+            "country": "US",
             "channel": "pos"
           },
           {
-            "id": "txn-1002",
-            "amount": 1275.2,
-            "currency": "usd",
-            "merchant_id": "merchant-b",
-            "country": "ng",
+            "id": "ord-1002",
+            "order_amount": 1275.2,
+            "currency": "USD",
+            "customer_tier": "new",
+            "country": "NG",
             "channel": "web"
           },
           {
-            "id": "txn-1003",
-            "amount": 560.0,
-            "currency": "eur",
-            "merchant_id": "merchant-c",
-            "country": "de",
+            "id": "ord-1003",
+            "order_amount": 560.0,
+            "currency": "EUR",
+            "customer_tier": "vip",
+            "country": "DE",
             "channel": "card_not_present"
           }
-        ]
+        ],
+        "rules": [
+          {
+            "field": "order_amount",
+            "operator": "gte",
+            "value": 1000,
+            "score": 0.45,
+            "contributor": "large_order"
+          },
+          {
+            "field": "order_amount",
+            "operator": "gte",
+            "value": 500,
+            "score": 0.2,
+            "contributor": "elevated_order_value"
+          },
+          {
+            "field": "country",
+            "operator": "in",
+            "values": ["NG", "IR", "KP"],
+            "score": 0.3,
+            "contributor": "high_risk_country"
+          },
+          {
+            "field": "channel",
+            "operator": "in",
+            "values": ["web", "card_not_present"],
+            "score": 0.1,
+            "contributor": "remote_channel"
+          },
+          {
+            "field": "customer_tier",
+            "operator": "eq",
+            "value": "new",
+            "score": 0.1,
+            "contributor": "new_customer"
+          }
+        ],
+        "decision_thresholds": {
+          "review": 0.45,
+          "block": 0.8
+        }
       },
       "timeout_seconds": 10,
       "priority": 95,
@@ -140,31 +205,31 @@
         "max_backoff_seconds": 20,
         "multiplier": 2
       },
-      "idempotency_key": "fraud-demo-score-v1"
+      "idempotency_key": "order-risk-inference-v1"
     },
     {
-      "task_id": "aggregate-risk-results",
-      "task_type": "aggregate_risk_results",
-      "dependencies": ["score-fraud-risk"],
+      "task_id": "aggregate-risk-metrics",
+      "task_type": "aggregate_metrics",
+      "dependencies": ["run-risk-inference"],
       "input_payload": {
-        "scores": [
+        "predictions": [
           {
-            "id": "txn-1001",
-            "risk_score": 0.05,
+            "id": "ord-1001",
+            "score": 0.05,
             "decision": "approve",
             "contributors": ["base"]
           },
           {
-            "id": "txn-1002",
-            "risk_score": 0.99,
+            "id": "ord-1002",
+            "score": 0.99,
             "decision": "block",
-            "contributors": ["base", "very_high_amount", "cross_border", "high_risk_geo", "remote_channel"]
+            "contributors": ["base", "large_order", "elevated_order_value", "high_risk_country", "remote_channel", "new_customer"]
           },
           {
-            "id": "txn-1003",
-            "risk_score": 0.5,
-            "decision": "review",
-            "contributors": ["base", "high_amount", "cross_border", "remote_channel"]
+            "id": "ord-1003",
+            "score": 0.35,
+            "decision": "approve",
+            "contributors": ["base", "elevated_order_value", "remote_channel"]
           }
         ]
       },
@@ -179,57 +244,27 @@
         "max_backoff_seconds": 5,
         "multiplier": 2
       },
-      "idempotency_key": "fraud-demo-aggregate-v1"
+      "idempotency_key": "order-risk-aggregate-v1"
     },
     {
-      "task_id": "embed-case-notes",
-      "task_type": "embed_text_batch",
-      "dependencies": ["validate-transaction-batch"],
+      "task_id": "write-risk-artifact",
+      "task_type": "write_artifact",
+      "dependencies": ["aggregate-risk-metrics"],
       "input_payload": {
-        "dimensions": 8,
-        "documents": [
-          {
-            "id": "case-note-1002",
-            "text": "High-value web transaction from high-risk geography requires fraud review."
-          },
-          {
-            "id": "case-note-1003",
-            "text": "Cross-border card-not-present transaction should be monitored."
-          }
-        ]
-      },
-      "timeout_seconds": 10,
-      "priority": 75,
-      "cpu_units": 700,
-      "memory_mb": 256,
-      "expected_duration_seconds": 3,
-      "retry_policy": {
-        "max_attempts": 2,
-        "initial_backoff_seconds": 1,
-        "max_backoff_seconds": 5,
-        "multiplier": 2
-      },
-      "idempotency_key": "fraud-demo-embeddings-v1"
-    },
-    {
-      "task_id": "persist-risk-artifact",
-      "task_type": "persist_artifact",
-      "dependencies": ["aggregate-risk-results", "embed-case-notes"],
-      "input_payload": {
-        "sink": "postgres://risk_artifacts",
-        "dataset": "fraud_daily_scores",
+        "sink": "local",
+        "dataset": "order_risk_daily_scores",
+        "base_path": "/tmp/helios-artifacts",
         "artifact": {
-          "workflow": "fraud-ai-risk-pipeline",
+          "workflow": "order-risk-processing-pipeline",
           "summary": {
-            "score_count": 3,
-            "avg_risk": 0.513,
+            "prediction_count": 3,
+            "avg_score": 0.463,
+            "max_score": 0.99,
             "decision_counts": {
-              "approve": 1,
-              "review": 1,
+              "approve": 2,
               "block": 1
             }
-          },
-          "embedding_batch": "case-notes"
+          }
         }
       },
       "timeout_seconds": 10,
@@ -243,7 +278,34 @@
         "max_backoff_seconds": 5,
         "multiplier": 2
       },
-      "idempotency_key": "fraud-demo-persist-v1"
+      "idempotency_key": "order-risk-artifact-v1"
+    },
+    {
+      "task_id": "notify-risk-ops",
+      "task_type": "notify_webhook",
+      "dependencies": ["write-risk-artifact"],
+      "input_payload": {
+        "dry_run": true,
+        "method": "POST",
+        "url": "https://ops.example.local/hooks/order-risk",
+        "body": {
+          "workflow": "order-risk-processing-pipeline",
+          "status": "artifact-ready",
+          "dataset": "order_risk_daily_scores"
+        }
+      },
+      "timeout_seconds": 10,
+      "priority": 40,
+      "cpu_units": 100,
+      "memory_mb": 64,
+      "expected_duration_seconds": 1,
+      "retry_policy": {
+        "max_attempts": 2,
+        "initial_backoff_seconds": 1,
+        "max_backoff_seconds": 5,
+        "multiplier": 2
+      },
+      "idempotency_key": "order-risk-notify-v1"
     }
   ]
 }

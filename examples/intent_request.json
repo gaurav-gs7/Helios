@@ -1,6 +1,6 @@
 {
-  "name": "merchant-risk-ai-planned-pipeline",
-  "intent": "validate merchant transactions, enrich risk features, score fraud risk, aggregate decisions, embed case notes, and persist an audit artifact",
+  "name": "order-risk-ai-planned-pipeline",
+  "intent": "validate order records, normalize fields, run model inference, aggregate risk metrics, write an artifact, and notify operations",
   "timeout_seconds": 20,
   "retry_policy": {
     "max_attempts": 3,

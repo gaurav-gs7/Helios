@@ -32,13 +32,12 @@ HELIOS_TIMEZONE = (
 )
 LOCAL_TIMEZONE = ZoneInfo(HELIOS_TIMEZONE)
 SUPPORTED_TASK_TYPES = [
-    "failure_probe",
-    "validate_records",
-    "enrich_risk_features",
-    "score_fraud_risk",
-    "aggregate_risk_results",
-    "persist_artifact",
-    "embed_text_batch",
+    "validate_payload",
+    "transform_records",
+    "model_inference",
+    "aggregate_metrics",
+    "write_artifact",
+    "notify_webhook",
 ]
 
 app = FastAPI(title="Helios Planner", version="1.2.0")
@@ -591,14 +590,14 @@ def build_intent_prompt(request: IntentRequest) -> str:
         f"multiplier={request.retry_policy.multiplier}\n"
         f"Supported trusted task types: {', '.join(SUPPORTED_TASK_TYPES)}\n"
         "Use only these task type behaviors:\n"
-        "- failure_probe: expects {'fail_until_attempt': int, 'retryable': bool}\n"
-        "- validate_records: validates transaction-like records\n"
-        "- enrich_risk_features: builds deterministic risk features\n"
-        "- score_fraud_risk: scores transaction fraud risk and may simulate "
-        "retryable model errors\n"
-        "- aggregate_risk_results: aggregates risk score output\n"
-        "- persist_artifact: simulates idempotent persistence of an execution artifact\n"
-        "- embed_text_batch: creates deterministic local text embeddings for AI pipeline demos\n"
+        "- validate_payload: validates records using required fields, field types, and uniqueness\n"
+        "- transform_records: applies deterministic field selection, rename, normalization, "
+        "rounding, and enrichment\n"
+        "- model_inference: runs trusted rule-based inference and can simulate retryable "
+        "model errors\n"
+        "- aggregate_metrics: aggregates inference predictions into counts and score metrics\n"
+        "- write_artifact: writes an idempotent local or manifest artifact\n"
+        "- notify_webhook: sends or dry-runs an outbound webhook notification\n"
         "Prefer 3 to 6 tasks. Dependencies must refer only to earlier task_ids. "
         "Keep the workflow a valid DAG with no cycles and no unsupported task types."
     )
@@ -978,102 +977,161 @@ def derive_stages(intent: str) -> list[str]:
     default_pipeline = ["ingest", "validate", "transform", "persist"]
     tokens = [token.strip(" ,.") for token in intent.lower().split()]
     discovered = []
-    for keyword in ["fetch", "validate", "enrich", "score", "aggregate", "embed", "persist"]:
+    for keyword in [
+        "fetch",
+        "validate",
+        "normalize",
+        "transform",
+        "infer",
+        "inference",
+        "score",
+        "aggregate",
+        "write",
+        "persist",
+        "notify",
+    ]:
         if keyword in tokens:
             discovered.append(keyword)
-    if not discovered and "embedding" in tokens:
-        discovered.append("embed")
     return discovered or default_pipeline
 
 
 def map_stage_to_task_type(stage: str) -> str:
     lowered = stage.lower()
     if lowered in {"validate", "validation"}:
-        return "validate_records"
-    if lowered in {"features", "feature", "enrich", "transform"}:
-        return "enrich_risk_features"
-    if lowered in {"score", "scoring", "risk"}:
-        return "score_fraud_risk"
+        return "validate_payload"
+    if lowered in {"features", "feature", "enrich", "transform", "normalize"}:
+        return "transform_records"
+    if lowered in {"score", "scoring", "risk", "infer", "inference", "model"}:
+        return "model_inference"
     if lowered in {"aggregate", "aggregation"}:
-        return "aggregate_risk_results"
+        return "aggregate_metrics"
     if lowered in {"persist", "write", "store"}:
-        return "persist_artifact"
-    if lowered in {"embed", "embedding", "embeddings"}:
-        return "embed_text_batch"
+        return "write_artifact"
+    if lowered in {"notify", "notification", "webhook"}:
+        return "notify_webhook"
     if lowered in {"convert"}:
-        return "enrich_risk_features"
-    if lowered in {"fail", "failure", "failure_probe"}:
-        return "failure_probe"
-    return "validate_records"
+        return "transform_records"
+    return "validate_payload"
 
 
 def default_payload_for_task_type(task_type: str, stage: str) -> dict[str, Any]:
-    if task_type == "failure_probe":
-        return {"fail_until_attempt": 1, "retryable": True}
-    if task_type == "validate_records":
-        return {"records": sample_transactions()}
-    if task_type == "enrich_risk_features":
-        return {"records": sample_transactions()}
-    if task_type == "score_fraud_risk":
+    if task_type == "validate_payload":
         return {
-            "records": sample_transactions(),
-            "fail_until_attempt": 0,
-            "retryable_failure": True,
+            "records": sample_order_records(),
+            "required_fields": ["id", "amount", "currency", "country"],
+            "field_types": {
+                "id": "string",
+                "amount": "number",
+                "currency": "string",
+                "country": "string",
+            },
+            "unique_key": "id",
         }
-    if task_type == "aggregate_risk_results":
+    if task_type == "transform_records":
         return {
-            "scores": [
+            "records": sample_order_records(),
+            "rename_fields": {"amount": "order_amount"},
+            "uppercase_fields": ["currency", "country"],
+            "lowercase_fields": ["channel"],
+            "round_fields": {"order_amount": 2},
+            "add_fields": {"pipeline_version": "planner-orders-v1"},
+        }
+    if task_type == "model_inference":
+        return {
+            "model_name": "planner-risk-rules-v1",
+            "records": sample_normalized_orders(),
+            "rules": [
                 {
-                    "id": "txn-1",
-                    "risk_score": 0.05,
-                    "decision": "approve",
-                    "contributors": ["base"],
+                    "field": "order_amount",
+                    "operator": "gte",
+                    "value": 1000,
+                    "score": 0.45,
+                    "contributor": "large_order",
                 },
                 {
-                    "id": "txn-2",
-                    "risk_score": 0.92,
-                    "decision": "block",
-                    "contributors": ["base", "very_high_amount"],
+                    "field": "country",
+                    "operator": "in",
+                    "values": ["NG", "IR", "KP"],
+                    "score": 0.3,
+                    "contributor": "high_risk_country",
                 },
-            ]
+            ],
         }
-    if task_type == "persist_artifact":
+    if task_type == "aggregate_metrics":
+        return {"predictions": sample_predictions()}
+    if task_type == "write_artifact":
         return {
-            "sink": "postgres://risk_artifacts",
+            "sink": "manifest",
             "dataset": "planner_generated",
-            "artifact": {"stage": stage, "status": "ready"},
+            "artifact": {"stage": stage, "status": "ready", "source": "planner"},
         }
-    if task_type == "embed_text_batch":
+    if task_type == "notify_webhook":
         return {
-            "dimensions": 8,
-            "documents": [{"id": "doc-1", "text": f"Planner generated note for {stage}"}],
+            "dry_run": True,
+            "method": "POST",
+            "url": "https://ops.example.local/hooks/helios",
+            "body": {"stage": stage, "status": "ready"},
         }
-    return {"records": sample_transactions()}
+    return {"records": sample_order_records()}
 
 
 def default_idempotency_key(task_type: str, task_id: str) -> str | None:
-    if task_type == "persist_artifact":
+    if task_type in {"write_artifact", "notify_webhook"}:
         return f"planner-{task_id}-artifact"
     return None
 
 
-def sample_transactions() -> list[dict[str, Any]]:
+def sample_order_records() -> list[dict[str, Any]]:
     return [
         {
-            "id": "txn-1",
+            "id": "ord-1",
             "amount": 42.75,
             "currency": "usd",
-            "merchant_id": "merchant-a",
             "country": "us",
             "channel": "pos",
         },
         {
-            "id": "txn-2",
+            "id": "ord-2",
             "amount": 1275.2,
             "currency": "usd",
-            "merchant_id": "merchant-b",
             "country": "ng",
             "channel": "web",
+        },
+    ]
+
+
+def sample_normalized_orders() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "ord-1",
+            "order_amount": 42.75,
+            "currency": "USD",
+            "country": "US",
+            "channel": "pos",
+        },
+        {
+            "id": "ord-2",
+            "order_amount": 1275.2,
+            "currency": "USD",
+            "country": "NG",
+            "channel": "web",
+        },
+    ]
+
+
+def sample_predictions() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "ord-1",
+            "score": 0.05,
+            "decision": "approve",
+            "contributors": ["base"],
+        },
+        {
+            "id": "ord-2",
+            "score": 0.9,
+            "decision": "block",
+            "contributors": ["base", "large_order", "high_risk_country"],
         },
     ]
 

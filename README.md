@@ -35,16 +35,14 @@ Supporting architecture artifacts live in:
 
 ## Trusted Workload Handlers
 
-Workers execute trusted, built-in handlers rather than arbitrary user code. The demo handler set now models production-style platform workloads:
+Workers execute trusted, built-in handlers rather than arbitrary user code. The handler set models production-style integration workloads without allowing unbounded remote code execution:
 
-- `validate_records`: validates transaction batches and rejects malformed records
-- `enrich_risk_features`: builds deterministic fraud/risk features
-- `score_fraud_risk`: scores records and can simulate retryable model-serving failures
-- `aggregate_risk_results`: aggregates score distributions and decisions
-- `embed_text_batch`: creates deterministic local embeddings for AI pipeline demos
-- `persist_artifact`: simulates idempotent artifact persistence with checksums
-
-`failure_probe` remains available as a controlled reliability-test handler for retry and recovery demos.
+- `validate_payload`: validates records with required fields, field types, uniqueness, and optional fail-fast rejection
+- `transform_records`: performs deterministic selection, rename, normalization, rounding, and enrichment
+- `model_inference`: runs trusted rule-based inference and can simulate retryable model-serving failures
+- `aggregate_metrics`: aggregates inference output into counts, averages, maxima, and checksums
+- `write_artifact`: writes idempotent local or manifest artifacts with stable IDs and checksums
+- `notify_webhook`: sends or dry-runs outbound webhook notifications with retryable status handling
 
 ## Local quickstart
 

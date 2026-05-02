@@ -209,7 +209,7 @@ func cancelWorkflow(ctx context.Context, client heliosv1.ControlPlaneServiceClie
 func expectFailureAnalysis(ctx context.Context, client heliosv1.ControlPlaneServiceClient, workflowID string) error {
 	resp, err := client.AnalyzeWorkflowFailure(ctx, &heliosv1.AnalyzeWorkflowFailureRequest{
 		WorkflowId:         workflowID,
-		RunbookQuery:       "failure probe",
+		RunbookQuery:       "model inference retry failure",
 		IncludeRawSnapshot: true,
 	})
 	if err != nil {
@@ -249,39 +249,39 @@ func expectSuccessWorkflowArtifacts(ctx context.Context, client heliosv1.Control
 	sawSuccess := false
 	for _, task := range tasksResp.GetTasks() {
 		taskByID[task.GetTaskId()] = task
-		if task.GetTaskId() == "score-fraud-risk" {
+		if task.GetTaskId() == "run-risk-inference" {
 			if task.GetAttempt() < 2 {
-				return fmt.Errorf("expected retry attempt on score-fraud-risk, got %d", task.GetAttempt())
+				return fmt.Errorf("expected retry attempt on run-risk-inference, got %d", task.GetAttempt())
 			}
 			if len(task.GetOutputPayload()) == 0 {
-				return errors.New("score-fraud-risk missing output payload")
+				return errors.New("run-risk-inference missing output payload")
 			}
 		}
 	}
 	for _, event := range eventsResp.GetEvents() {
-		if event.GetTaskId() == "score-fraud-risk" && (event.GetNewState() == "failed" || event.GetNewState() == "retry_wait") {
+		if event.GetTaskId() == "run-risk-inference" && (event.GetNewState() == "failed" || event.GetNewState() == "retry_wait") {
 			sawRetryFailure = true
 		}
-		if event.GetTaskId() == "persist-risk-artifact" && event.GetNewState() == "succeeded" {
+		if event.GetTaskId() == "write-risk-artifact" && event.GetNewState() == "succeeded" {
 			sawSuccess = true
 		}
 	}
 	if !sawRetryFailure {
-		return errors.New("expected failed retry event for score-fraud-risk")
+		return errors.New("expected failed retry event for run-risk-inference")
 	}
 	if !sawSuccess {
-		return errors.New("expected persist-risk-artifact success event")
+		return errors.New("expected write-risk-artifact success event")
 	}
-	persistTask := taskByID["persist-risk-artifact"]
+	persistTask := taskByID["write-risk-artifact"]
 	if persistTask == nil {
-		return errors.New("persist-risk-artifact task not found")
+		return errors.New("write-risk-artifact task not found")
 	}
 	getTaskResp, err := client.GetTask(ctx, &heliosv1.GetTaskRequest{TaskId: persistTask.GetTaskId()})
 	if err != nil {
 		return fmt.Errorf("get task %s: %w", persistTask.GetTaskId(), err)
 	}
 	if getTaskResp.GetState() != "succeeded" {
-		return fmt.Errorf("persist-risk-artifact task state = %s", getTaskResp.GetState())
+		return fmt.Errorf("write-risk-artifact task state = %s", getTaskResp.GetState())
 	}
 	fmt.Printf("grpc_success=ok workflow_id=%s tasks=%d events=%d\n", workflowID, len(tasksResp.GetTasks()), len(eventsResp.GetEvents()))
 	return nil
@@ -378,8 +378,8 @@ func cancelWorkflowSpec() *heliosv1.WorkflowSpec {
 		Tasks: []*heliosv1.TaskSpec{
 			{
 				TaskId:         "cancel-after-retry",
-				TaskType:       "failure_probe",
-				InputPayload:   mustJSON(map[string]any{"fail_until_attempt": 5, "retryable": true}),
+				TaskType:       "model_inference",
+				InputPayload:   inferencePayload(5, true),
 				TimeoutSeconds: 10,
 				RetryPolicy: &heliosv1.RetryPolicy{
 					MaxAttempts:           6,
@@ -399,8 +399,8 @@ func failedWorkflowSpec() *heliosv1.WorkflowSpec {
 		Tasks: []*heliosv1.TaskSpec{
 			{
 				TaskId:         "terminal-failure",
-				TaskType:       "failure_probe",
-				InputPayload:   mustJSON(map[string]any{"fail_until_attempt": 1, "retryable": false}),
+				TaskType:       "model_inference",
+				InputPayload:   inferencePayload(1, false),
 				TimeoutSeconds: 10,
 				RetryPolicy: &heliosv1.RetryPolicy{
 					MaxAttempts:           1,
@@ -467,4 +467,15 @@ func mustJSON(value any) []byte {
 		panic(err)
 	}
 	return body
+}
+
+func inferencePayload(failUntilAttempt int, retryable bool) []byte {
+	return mustJSON(map[string]any{
+		"model_name":          "smoke-risk-rules-v1",
+		"fail_until_attempt":  failUntilAttempt,
+		"retryable_failure":   retryable,
+		"records":             []map[string]any{{"id": "smoke-1", "amount": 100}},
+		"rules":               []map[string]any{{"field": "amount", "operator": "gte", "value": 50, "score": 0.5, "contributor": "amount_threshold"}},
+		"decision_thresholds": map[string]any{"review": 0.45, "block": 0.8},
+	})
 }
