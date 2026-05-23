@@ -4,8 +4,9 @@ DOCKER_COMPOSE ?= docker compose -f deploy/compose.yaml
 
 DEPLOY_TARGET ?= docker-compose
 DEPLOY_OVERLAY ?= dev
+BENCHMARK_COUNTS ?= 100 500 1000
 
-.PHONY: fmt lint test build-cli infra-up infra-down run-control-plane run-worker planner benchmark pre-deploy-check post-deploy-check smoke deploy compose-deploy k8s-deploy-dev argocd-bootstrap-dev
+.PHONY: fmt lint test build-cli infra-up infra-down run-control-plane run-worker planner benchmark benchmark-quick pre-deploy-check post-deploy-check smoke deploy compose-deploy k8s-deploy-dev argocd-bootstrap-dev
 
 fmt:
 	$(GO)fmt ./...
@@ -37,7 +38,10 @@ planner:
 	cd planner && $(PYTHON) -m uvicorn main:app --host 0.0.0.0 --port 8090
 
 benchmark:
-	bash scripts/benchmark/run_benchmark.sh
+	BENCHMARK_COUNTS="$(BENCHMARK_COUNTS)" bash scripts/benchmark/run_benchmark.sh
+
+benchmark-quick:
+	COUNT=25 bash scripts/benchmark/run_benchmark.sh
 
 pre-deploy-check:
 	bash scripts/deploy/pre_deploy_check.sh

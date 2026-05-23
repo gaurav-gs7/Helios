@@ -232,7 +232,7 @@ The planner exposes `/metrics` and Prometheus scrapes it as `helios-planner`. Us
 ## Benchmarks and chaos drills
 
 - Benchmark driver: `scripts/benchmark/run_benchmark.sh`
-- Benchmark report with local MacBook Air M2 results: `docs/benchmarks/benchmark-report.md`
+- Benchmark report and 100/500/1000+ workflow matrix guidance: `docs/benchmarks/benchmark-report.md`
 - Chaos drills: `scripts/chaos/kill_worker.sh`, `scripts/chaos/restart_control_plane.sh`, `scripts/chaos/pause_heartbeats.md`
 - Prometheus alert rules: `deploy/alerts/helios-alerts.yml`
 - Kubernetes base manifests: `deploy/k8s/base`

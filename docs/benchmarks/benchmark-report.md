@@ -2,31 +2,62 @@
 
 ## Goal
 
-Measure Helios workflow submission throughput, end-to-end workflow completion rate, task execution throughput, retry behavior, and local demo viability on a constrained developer machine.
+Measure Helios at production-shaped workflow volumes instead of the original tiny smoke-style run. The benchmark now supports 100, 500, 1000, or larger workflow batches and records scheduler, worker, retry, recovery, and correctness signals for each run.
 
-This benchmark is intentionally practical rather than synthetic. It runs the production-style fraud/risk workflow from [workflow.json](../../examples/workflow.json), which includes validation, feature enrichment, fraud scoring, aggregation, deterministic embedding generation, artifact persistence, and a retryable model-serving failure in the scoring stage.
+The workload uses the production-style fraud/risk workflow from [workflow.json](../../examples/workflow.json), which includes validation, feature enrichment, fraud scoring, aggregation, deterministic embedding generation, artifact persistence, and webhook notification. The scoring stage intentionally exercises retry behavior.
 
-## Environment
+## How To Run
 
-- Machine: MacBook Air M2, 8 GB RAM, 256 GB storage
-- OS: macOS arm64, Darwin 25.4.0
-- Runtime: Docker Compose
-- Services running:
-  - PostgreSQL 16
-  - NATS 2.11
-  - Helios control plane
-  - Helios worker
-  - Helios Gemini planner
-  - Prometheus
-  - Grafana
-- Worker count: 1 active worker
-- Worker capacity: 2
-- Benchmark script: [run_benchmark.sh](../../scripts/benchmark/run_benchmark.sh)
-- Raw result: [benchmark-20260418T072628Z.json](results/benchmark-20260418T072628Z.json)
+Run the default benchmark matrix:
+
+```bash
+make benchmark
+```
+
+By default this executes:
+
+- 100 workflows
+- 500 workflows
+- 1000 workflows
+
+Run a custom matrix:
+
+```bash
+BENCHMARK_COUNTS="100 500 1000 2500" make benchmark
+```
+
+Run a quick local sanity benchmark:
+
+```bash
+make benchmark-quick
+```
+
+For large runs, raise the API submission limiter before starting the control plane:
+
+```bash
+HELIOS_SUBMISSION_RATE_PER_MINUTE=5000 make run-control-plane
+```
+
+Raw JSON results are written to [results](results) as `benchmark-<run-id>-<count>w.json`.
+
+## Metrics Captured
+
+Each result file includes:
+
+| Metric | Meaning |
+| --- | --- |
+| `workflow_latency_ms.p50/p95/p99` | Time from benchmark submission to observed terminal workflow state |
+| `scheduler_lease_latency_ms.p50/p95/p99` | Time from a task entering `ready` to the scheduler leasing it |
+| `task_throughput_tasks_per_sec` | Terminal task events processed per second |
+| `attempt_throughput_attempts_per_sec` | Task attempts processed per second, including retries |
+| `recovery_time_ms.p50/p95/p99` | Time from recovery timeout detection to recovery policy application |
+| `stale_result_count` | Observed stale or late-result signals in workflow event history |
+| `duplicate_assignment_count` | Duplicate scheduler lease events for the same attempt ID |
+| `worker_utilization.utilization_ratio` | Worker running-task utilization sampled during polling |
+| `recovery_event_count` | Number of lease/worker-loss recovery events observed |
+| `scheduler_lease_event_count` | Number of scheduler lease events observed |
 
 ## Workload
-
-The benchmark submitted 5 workflow instances using the default example workflow.
 
 Each workflow contains 6 DAG tasks:
 
@@ -39,66 +70,36 @@ Each workflow contains 6 DAG tasks:
 
 The `model_inference` task intentionally fails on its first attempt with a retryable error. This means the benchmark exercises retry/backoff and attempt-aware result handling, not just happy-path task execution.
 
-## Results
+## Interpreting Results
 
-| Metric | Value |
-| --- | ---: |
-| Submitted workflows | 5 |
-| Succeeded workflows | 5 |
-| Failed workflows | 0 |
-| Total tasks | 30 |
-| Total task attempts | 36 |
-| Retry tasks observed | 6 |
-| Submission elapsed | 475 ms |
-| Total completion elapsed | 29,032 ms |
-| Submission rate | 631.58 workflows/min |
-| Completion rate | 10.33 workflows/min |
-| Task completion rate | 1.03 tasks/sec |
-| Attempt processing rate | 1.24 attempts/sec |
-| Average workflow latency | 28,792.6 ms |
-| p50 workflow latency | 28,773 ms |
-| p95 workflow latency | 28,975 ms |
-| Max workflow latency | 28,975 ms |
+Healthy large-run results should show:
 
-## Interpretation
-
-All submitted workflows completed successfully, which validates the full local execution path:
-
-- API submission
-- DAG persistence
-- scheduler leasing
-- worker execution
-- retry/backoff
-- dependency unlock
-- final workflow success reconciliation
-
-The completion rate is intentionally lower than raw submission throughput because the workload includes retryable model-serving failure simulation and retry backoff. This is useful for production-readiness validation because it proves Helios handles degraded task execution rather than only measuring a happy path.
-
-The submission path is fast relative to execution, completing 5 submissions in under half a second. End-to-end completion is bounded by one active worker, worker capacity, scheduler tick interval, workflow dependency structure, and intentional retry backoff.
+- All submitted workflows reach a terminal state before timeout.
+- `succeeded_workflows` equals `submitted_workflows` for the default workflow.
+- `duplicate_assignment_count` remains `0`.
+- `stale_result_count` remains `0`.
+- `scheduler_lease_latency_ms.p95` stays close to the scheduler tick plus worker availability delay.
+- `worker_utilization.utilization_ratio.p95` rises under load instead of staying near zero.
+- `recovery_event_count` is normally `0` for the default benchmark unless workers are killed or leases expire during the run.
 
 ## Production Signals
 
-This benchmark demonstrates:
+The benchmark validates:
 
-- Helios can run multiple DAG workflows concurrently on a small laptop.
-- The scheduler can continue dispatching work while retryable failures are present.
-- Retry attempts do not prevent workflows from reaching terminal success.
-- The control plane can persist and inspect completed workflow histories.
-- The benchmark script produces reproducible JSON output that can be tracked across commits.
+- API submission under sustained workflow volume
+- DAG persistence and task readiness transitions
+- scheduler leasing behavior under load
+- NATS assignment dispatch
+- worker execution throughput and utilization
+- retry/backoff correctness
+- attempt-aware task completion
+- duplicate assignment detection
+- stale-result signal detection
+- recovery timing when timeout or worker-loss recovery occurs
+- reproducible JSON output for comparing commits and environments
 
-## Bottlenecks Observed
+## Notes
 
-- Single active worker limits task throughput.
-- The sample DAG has a long critical path, so not every task can run in parallel.
-- Retry backoff in `model_inference` intentionally increases workflow latency.
-- Poll-based benchmark measurement adds up to 2 seconds of observation delay.
-- Docker Desktop overhead is visible on an 8 GB MacBook Air when Prometheus and Grafana are also running.
+The benchmark is intentionally API-driven. It observes the system through the same REST endpoints operators and smoke checks use, then derives latency and correctness metrics from workflow, task, worker, and event records.
 
-## Next Benchmark Improvements
-
-- Run matrix benchmarks with 1, 2, and 4 workers.
-- Add a no-retry workload to measure raw happy-path scheduler throughput.
-- Add p95 scheduler lease latency once scheduler histograms are available.
-- Add Prometheus query snapshots before and after each benchmark run.
-- Add Kubernetes/kind benchmark results after deploying the Kustomize dev overlay.
-- Add worker-death recovery timing using the chaos script and compare lease duration settings.
+For stable comparisons, keep worker count, worker capacity, scheduler tick, retry policy, and Docker/Kubernetes resource limits fixed between runs.

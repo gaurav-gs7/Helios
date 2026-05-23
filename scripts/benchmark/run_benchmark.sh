@@ -4,12 +4,16 @@ set -euo pipefail
 API_URL="${API_URL:-http://localhost:8080}"
 TOKEN="${TOKEN:-${HELIOS_ADMIN_TOKEN:-change-me-admin-token}}"
 WORKFLOW_FILE="${WORKFLOW_FILE:-examples/workflow.json}"
-COUNT="${COUNT:-10}"
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
+COUNT="${COUNT:-100}"
+BENCHMARK_COUNTS="${BENCHMARK_COUNTS:-}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-1800}"
 POLL_SECONDS="${POLL_SECONDS:-2}"
 RESULT_DIR="${RESULT_DIR:-docs/benchmarks/results}"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
-RESULT_FILE="${RESULT_FILE:-${RESULT_DIR}/benchmark-${RUN_ID}.json}"
+RESULT_FILE="${RESULT_FILE:-}"
+PROGRESS_EVERY="${PROGRESS_EVERY:-25}"
+SUBMIT_RETRIES="${SUBMIT_RETRIES:-12}"
+SUBMIT_RETRY_SLEEP_SECONDS="${SUBMIT_RETRY_SLEEP_SECONDS:-5}"
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -36,95 +40,128 @@ print(value)
 PY
 }
 
-json_summary() {
-  python3 - "$@" <<'PY'
-import json
-import math
-import statistics
-import sys
+submit_workflow() {
+  local submit_file="$1"
+  local attempt=1
+  local status
 
-result_file = sys.argv[1]
-api_url = sys.argv[2]
-workflow_file = sys.argv[3]
-count = int(sys.argv[4])
-submit_started_ms = int(sys.argv[5])
-submit_finished_ms = int(sys.argv[6])
-finished_ms = int(sys.argv[7])
-workflow_files = sys.argv[8:]
-
-latencies = []
-states = {}
-total_tasks = 0
-total_attempts = 0
-retry_tasks = 0
-failed_workflows = 0
-succeeded_workflows = 0
-
-for item in workflow_files:
-    workflow_id, submitted_ms, path = item.split("=", 2)
-    submitted_ms = int(submitted_ms)
-    with open(path, "r", encoding="utf-8") as handle:
-        workflow = json.load(handle)
-    state = workflow.get("state", "unknown")
-    states[state] = states.get(state, 0) + 1
-    if state == "succeeded":
-        succeeded_workflows += 1
-    if state in {"failed", "cancelled"}:
-        failed_workflows += 1
-    latency_ms = max(0, finished_ms - submitted_ms)
-    latencies.append(latency_ms)
-    tasks = workflow.get("tasks", [])
-    total_tasks += len(tasks)
-    for task in tasks:
-        attempts = int(task.get("attempt", 0) or 0)
-        total_attempts += attempts
-        if attempts > 1:
-            retry_tasks += 1
-
-def percentile(values, pct):
-    if not values:
-        return 0
-    values = sorted(values)
-    index = math.ceil((pct / 100) * len(values)) - 1
-    return values[max(0, min(index, len(values) - 1))]
-
-submit_elapsed = max(1, submit_finished_ms - submit_started_ms)
-total_elapsed = max(1, finished_ms - submit_started_ms)
-summary = {
-    "run_id": result_file.rsplit("/", 1)[-1].replace("benchmark-", "").replace(".json", ""),
-    "api_url": api_url,
-    "workflow_file": workflow_file,
-    "submitted_workflows": count,
-    "succeeded_workflows": succeeded_workflows,
-    "failed_workflows": failed_workflows,
-    "workflow_states": states,
-    "total_tasks": total_tasks,
-    "total_task_attempts": total_attempts,
-    "retry_tasks": retry_tasks,
-    "submission_elapsed_ms": submit_elapsed,
-    "total_elapsed_ms": total_elapsed,
-    "submission_rate_workflows_per_min": round(count * 60000 / submit_elapsed, 2),
-    "completion_rate_workflows_per_min": round(succeeded_workflows * 60000 / total_elapsed, 2),
-    "task_completion_rate_tasks_per_sec": round(total_tasks * 1000 / total_elapsed, 2),
-    "attempt_rate_attempts_per_sec": round(total_attempts * 1000 / total_elapsed, 2),
-    "workflow_latency_ms": {
-        "avg": round(statistics.mean(latencies), 2) if latencies else 0,
-        "p50": percentile(latencies, 50),
-        "p95": percentile(latencies, 95),
-        "max": max(latencies) if latencies else 0,
-    },
+  while true; do
+    status="$(
+      curl -sS -o "${submit_file}" -w "%{http_code}" -X POST "${API_URL}/api/v1/workflows" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" \
+        --data @"${WORKFLOW_FILE}" || true
+    )"
+    if [[ "${status}" == "202" ]]; then
+      return 0
+    fi
+    if [[ "${status}" == "429" && "${attempt}" -lt "${SUBMIT_RETRIES}" ]]; then
+      echo "submission_rate_limited=attempt:${attempt};sleep:${SUBMIT_RETRY_SLEEP_SECONDS}s" >&2
+      sleep "${SUBMIT_RETRY_SLEEP_SECONDS}"
+      attempt=$((attempt + 1))
+      continue
+    fi
+    echo "workflow submission failed with HTTP ${status}" >&2
+    cat "${submit_file}" >&2 || true
+    return 1
+  done
 }
 
-with open(result_file, "w", encoding="utf-8") as handle:
-    json.dump(summary, handle, indent=2, sort_keys=True)
-    handle.write("\n")
+run_single_benchmark() {
+  local count="$1"
+  local run_id="$2"
+  local result_file="$3"
+  local tmp_dir manifest_file worker_sample_dir submit_started_ms submit_finished_ms finished_ms
 
-for key, value in summary.items():
-    if isinstance(value, (dict, list)):
-        print(f"{key}={json.dumps(value, sort_keys=True)}")
-    else:
-        print(f"{key}={value}")
-PY
+  tmp_dir="$(mktemp -d)"
+  manifest_file="${tmp_dir}/manifest.tsv"
+  worker_sample_dir="${tmp_dir}/worker-samples"
+  mkdir -p "${worker_sample_dir}"
+  : >"${manifest_file}"
+
+  echo "benchmark_run_id=${run_id}"
+  echo "api_url=${API_URL}"
+  echo "workflow_file=${WORKFLOW_FILE}"
+  echo "workflow_count=${count}"
+  echo "result_file=${result_file}"
+
+  curl -fsS "${API_URL}/readyz" >/dev/null
+
+  submit_started_ms="$(now_ms)"
+  workflow_refs=()
+  for index in $(seq 1 "${count}"); do
+    submit_file="${tmp_dir}/submit-${index}.json"
+    submitted_ms="$(now_ms)"
+    submit_workflow "${submit_file}"
+    workflow_id="$(json_get workflow_id "${submit_file}")"
+    workflow_refs+=("${workflow_id}=${submitted_ms}")
+    if ((index == 1 || index == count || index % PROGRESS_EVERY == 0)); then
+      echo "submitted_workflows=${index}/${count}"
+    fi
+  done
+  submit_finished_ms="$(now_ms)"
+
+  deadline=$((SECONDS + TIMEOUT_SECONDS))
+  pending=("${workflow_refs[@]}")
+  poll_index=0
+  while ((${#pending[@]} > 0)); do
+    if [[ "${SECONDS}" -ge "${deadline}" ]]; then
+      echo "benchmark timed out waiting for ${#pending[@]} workflow(s)" >&2
+      exit 1
+    fi
+
+    poll_index=$((poll_index + 1))
+    curl -fsS "${API_URL}/api/v1/workers" \
+      -H "Authorization: Bearer ${TOKEN}" >"${worker_sample_dir}/workers-${poll_index}.json"
+
+    next_pending=()
+    completed_this_poll=0
+    for ref in "${pending[@]}"; do
+      workflow_id="${ref%%=*}"
+      submitted_ms="${ref#*=}"
+      workflow_summary_file="${tmp_dir}/workflow-${workflow_id}.json"
+      curl -fsS "${API_URL}/api/v1/workflows/${workflow_id}" \
+        -H "Authorization: Bearer ${TOKEN}" >"${workflow_summary_file}"
+      state="$(json_get state "${workflow_summary_file}")"
+      case "${state}" in
+        succeeded|failed|cancelled)
+          terminal_ms="$(now_ms)"
+          workflow_tasks_file="${tmp_dir}/tasks-${workflow_id}.json"
+          workflow_events_file="${tmp_dir}/events-${workflow_id}.json"
+          curl -fsS "${API_URL}/api/v1/workflows/${workflow_id}/tasks" \
+            -H "Authorization: Bearer ${TOKEN}" >"${workflow_tasks_file}"
+          curl -fsS "${API_URL}/api/v1/workflows/${workflow_id}/events" \
+            -H "Authorization: Bearer ${TOKEN}" >"${workflow_events_file}"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "${workflow_id}" "${submitted_ms}" "${terminal_ms}" \
+            "${workflow_summary_file}" "${workflow_tasks_file}" "${workflow_events_file}" >>"${manifest_file}"
+          completed_this_poll=$((completed_this_poll + 1))
+          ;;
+        *)
+          next_pending+=("${ref}")
+          ;;
+      esac
+    done
+    pending=("${next_pending[@]}")
+    echo "poll=${poll_index} completed=${completed_this_poll} pending=${#pending[@]}"
+    if ((${#pending[@]} > 0)); then
+      sleep "${POLL_SECONDS}"
+    fi
+  done
+
+  finished_ms="$(now_ms)"
+  python3 scripts/benchmark/summarize_benchmark.py \
+    --result-file "${result_file}" \
+    --api-url "${API_URL}" \
+    --workflow-file "${WORKFLOW_FILE}" \
+    --workflow-count "${count}" \
+    --submit-started-ms "${submit_started_ms}" \
+    --submit-finished-ms "${submit_finished_ms}" \
+    --finished-ms "${finished_ms}" \
+    --manifest-file "${manifest_file}" \
+    --worker-sample-dir "${worker_sample_dir}"
+
+  rm -rf "${tmp_dir}"
 }
 
 require curl
@@ -136,67 +173,11 @@ if [[ -z "${TOKEN}" ]]; then
 fi
 
 mkdir -p "${RESULT_DIR}"
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf "${tmp_dir}"' EXIT
 
-echo "benchmark_run_id=${RUN_ID}"
-echo "api_url=${API_URL}"
-echo "workflow_file=${WORKFLOW_FILE}"
-echo "workflow_count=${COUNT}"
-
-curl -fsS "${API_URL}/readyz" >/dev/null
-
-submit_started_ms="$(now_ms)"
-workflow_refs=()
-for index in $(seq 1 "${COUNT}"); do
-  submit_file="${tmp_dir}/submit-${index}.json"
-  submitted_ms="$(now_ms)"
-  curl -fsS -X POST "${API_URL}/api/v1/workflows" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" \
-    --data @"${WORKFLOW_FILE}" >"${submit_file}"
-  workflow_id="$(json_get workflow_id "${submit_file}")"
-  workflow_refs+=("${workflow_id}=${submitted_ms}")
-  echo "submitted_workflow=${workflow_id}"
-done
-submit_finished_ms="$(now_ms)"
-
-deadline=$((SECONDS + TIMEOUT_SECONDS))
-pending=("${workflow_refs[@]}")
-finished_files=()
-while ((${#pending[@]} > 0)); do
-  if [[ "${SECONDS}" -ge "${deadline}" ]]; then
-    echo "benchmark timed out waiting for ${#pending[@]} workflow(s)" >&2
-    exit 1
-  fi
-
-  next_pending=()
-  for ref in "${pending[@]}"; do
-    workflow_id="${ref%%=*}"
-    submitted_ms="${ref#*=}"
-    workflow_file="${tmp_dir}/workflow-${workflow_id}.json"
-    curl -fsS "${API_URL}/api/v1/workflows/${workflow_id}" \
-      -H "Authorization: Bearer ${TOKEN}" >"${workflow_file}"
-    state="$(json_get state "${workflow_file}")"
-    case "${state}" in
-      succeeded|failed|cancelled)
-        finished_files+=("${workflow_id}=${submitted_ms}=${workflow_file}")
-        echo "terminal_workflow=${workflow_id}:${state}"
-        ;;
-      *)
-        next_pending+=("${ref}")
-        ;;
-    esac
+if [[ -n "${BENCHMARK_COUNTS}" ]]; then
+  for count in ${BENCHMARK_COUNTS}; do
+    run_single_benchmark "${count}" "${RUN_ID}-${count}w" "${RESULT_DIR}/benchmark-${RUN_ID}-${count}w.json"
   done
-  pending=()
-  if ((${#next_pending[@]} > 0)); then
-    pending=("${next_pending[@]}")
-  fi
-  if ((${#pending[@]} > 0)); then
-    sleep "${POLL_SECONDS}"
-  fi
-done
-
-finished_ms="$(now_ms)"
-json_summary "${RESULT_FILE}" "${API_URL}" "${WORKFLOW_FILE}" "${COUNT}" "${submit_started_ms}" "${submit_finished_ms}" "${finished_ms}" "${finished_files[@]}"
-echo "result_file=${RESULT_FILE}"
+else
+  run_single_benchmark "${COUNT}" "${RUN_ID}" "${RESULT_FILE:-${RESULT_DIR}/benchmark-${RUN_ID}.json}"
+fi
