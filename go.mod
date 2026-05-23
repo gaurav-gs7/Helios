@@ -1,4 +1,4 @@
-module github.com/gauravgs7/helios
+module github.com/gaurav-gs7/helios
 
 go 1.26.0
 

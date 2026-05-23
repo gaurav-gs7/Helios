@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gauravgs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/domain"
 	"github.com/nats-io/nats.go"
 )
 

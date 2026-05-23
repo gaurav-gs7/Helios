@@ -4,7 +4,7 @@
 
 Measure Helios workflow submission throughput, end-to-end workflow completion rate, task execution throughput, retry behavior, and local demo viability on a constrained developer machine.
 
-This benchmark is intentionally practical rather than synthetic. It runs the production-style fraud/risk workflow from [workflow.json](/Users/gauravgs7/Documents/Projects/Helios-AI/Test_Helios/examples/workflow.json), which includes validation, feature enrichment, fraud scoring, aggregation, deterministic embedding generation, artifact persistence, and a retryable model-serving failure in the scoring stage.
+This benchmark is intentionally practical rather than synthetic. It runs the production-style fraud/risk workflow from [workflow.json](../../examples/workflow.json), which includes validation, feature enrichment, fraud scoring, aggregation, deterministic embedding generation, artifact persistence, and a retryable model-serving failure in the scoring stage.
 
 ## Environment
 
@@ -21,8 +21,8 @@ This benchmark is intentionally practical rather than synthetic. It runs the pro
   - Grafana
 - Worker count: 1 active worker
 - Worker capacity: 2
-- Benchmark script: [run_benchmark.sh](/Users/gauravgs7/Documents/Projects/Helios-AI/Test_Helios/scripts/benchmark/run_benchmark.sh)
-- Raw result: [benchmark-20260418T072628Z.json](/Users/gauravgs7/Documents/Projects/Helios-AI/Test_Helios/docs/benchmarks/results/benchmark-20260418T072628Z.json)
+- Benchmark script: [run_benchmark.sh](../../scripts/benchmark/run_benchmark.sh)
+- Raw result: [benchmark-20260418T072628Z.json](results/benchmark-20260418T072628Z.json)
 
 ## Workload
 

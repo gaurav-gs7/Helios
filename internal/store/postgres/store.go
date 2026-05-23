@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gauravgs7/helios/internal/domain"
-	"github.com/gauravgs7/helios/internal/metrics"
+	"github.com/gaurav-gs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/metrics"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

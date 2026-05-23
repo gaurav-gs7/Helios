@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gauravgs7/helios/internal/dispatch"
-	"github.com/gauravgs7/helios/internal/domain"
-	"github.com/gauravgs7/helios/internal/store/postgres"
+	"github.com/gaurav-gs7/helios/internal/dispatch"
+	"github.com/gaurav-gs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/store/postgres"
 )
 
 type Scheduler struct {

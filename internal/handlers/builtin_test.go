@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gauravgs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/domain"
 )
 
 func TestValidatePayloadReturnsValidAndRejectedCounts(t *testing.T) {

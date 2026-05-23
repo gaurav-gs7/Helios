@@ -9,10 +9,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/gauravgs7/helios/internal/config"
-	"github.com/gauravgs7/helios/internal/dispatch"
-	"github.com/gauravgs7/helios/internal/handlers"
-	"github.com/gauravgs7/helios/internal/worker"
+	"github.com/gaurav-gs7/helios/internal/config"
+	"github.com/gaurav-gs7/helios/internal/dispatch"
+	"github.com/gaurav-gs7/helios/internal/handlers"
+	"github.com/gaurav-gs7/helios/internal/worker"
 )
 
 func main() {

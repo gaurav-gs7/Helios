@@ -10,7 +10,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/gauravgs7/helios.git
+    repoURL: https://github.com/gaurav-gs7/helios.git
     targetRevision: main
     path: deploy/k8s/overlays/prod-like
   destination:

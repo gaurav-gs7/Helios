@@ -17,9 +17,6 @@ permissions:
   contents: write
   pull-requests: write
 
-env:
-  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
-
 jobs:
   update-dev-overlay:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
@@ -27,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: imranismail/setup-kustomize@v2
+      - name: Resolve lowercase image prefix
+        run: echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - name: Resolve image tag
         id: tag
         run: |

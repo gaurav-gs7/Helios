@@ -29,4 +29,4 @@
 - Backoff expiry moves `retry_wait -> ready`
 - Terminal failure drives workflow failure and cancels outstanding work
 
-The canonical transition guard lives in [state_machine.go](/Users/gauravgs7/Documents/Projects/Helios-AI/Test_Helios/internal/domain/state_machine.go).
+The canonical transition guard lives in [state_machine.go](../../internal/domain/state_machine.go).

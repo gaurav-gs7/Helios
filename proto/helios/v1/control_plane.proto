@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package helios.v1;
 
-option go_package = "github.com/gauravgs7/helios/helios/v1;heliosv1";
+option go_package = "github.com/gaurav-gs7/helios/helios/v1;heliosv1";
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";

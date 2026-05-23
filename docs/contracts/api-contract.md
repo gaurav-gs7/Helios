@@ -9,7 +9,7 @@ All admin endpoints require `Authorization: Bearer <HELIOS_ADMIN_TOKEN>`.
 - Submit a static DAG workflow
 - Validates DAG shape and persists workflow/tasks transactionally
 
-Request schema: [workflow-submit.schema.json](/Users/gauravgs7/Documents/Projects/Helios-AI/Test_Helios/docs/api/schemas/workflow-submit.schema.json)
+Request schema: [workflow-submit.schema.json](../api/schemas/workflow-submit.schema.json)
 
 ### `GET /api/v1/workflows`
 
@@ -73,7 +73,7 @@ Worker registration requires `Authorization: Bearer <HELIOS_WORKER_BOOTSTRAP_TOK
   - worker metadata
   - a unique per-worker bearer token
 
-Request schema: [worker-register.schema.json](/Users/gauravgs7/Documents/Projects/Helios-AI/Test_Helios/docs/api/schemas/worker-register.schema.json)
+Request schema: [worker-register.schema.json](../api/schemas/worker-register.schema.json)
 
 Subsequent worker calls require the returned worker token.
 

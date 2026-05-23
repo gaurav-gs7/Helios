@@ -3,7 +3,7 @@ package dag
 import (
 	"fmt"
 
-	"github.com/gauravgs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/domain"
 )
 
 func Validate(spec domain.WorkflowSpec) error {

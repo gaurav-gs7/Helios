@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	heliosv1 "github.com/gauravgs7/helios/helios/v1"
-	"github.com/gauravgs7/helios/internal/domain"
+	heliosv1 "github.com/gaurav-gs7/helios/helios/v1"
+	"github.com/gaurav-gs7/helios/internal/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"

@@ -13,11 +13,11 @@ resources:
 
 images:
   - name: helios/control-plane
-    newName: ghcr.io/gauravgs7/helios/control-plane
+    newName: ghcr.io/gaurav-gs7/helios/control-plane
     newTag: local
   - name: helios/worker
-    newName: ghcr.io/gauravgs7/helios/worker
+    newName: ghcr.io/gaurav-gs7/helios/worker
     newTag: local
   - name: helios/planner
-    newName: ghcr.io/gauravgs7/helios/planner
+    newName: ghcr.io/gaurav-gs7/helios/planner
     newTag: local

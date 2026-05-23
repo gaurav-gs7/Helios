@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/gauravgs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/domain"
 )
 
 func TestValidateAcceptsValidDAG(t *testing.T) {

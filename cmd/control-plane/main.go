@@ -9,12 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gauravgs7/helios/internal/api"
-	"github.com/gauravgs7/helios/internal/config"
-	"github.com/gauravgs7/helios/internal/dispatch"
-	"github.com/gauravgs7/helios/internal/metrics"
-	"github.com/gauravgs7/helios/internal/scheduler"
-	"github.com/gauravgs7/helios/internal/store/postgres"
+	"github.com/gaurav-gs7/helios/internal/api"
+	"github.com/gaurav-gs7/helios/internal/config"
+	"github.com/gaurav-gs7/helios/internal/dispatch"
+	"github.com/gaurav-gs7/helios/internal/metrics"
+	"github.com/gaurav-gs7/helios/internal/scheduler"
+	"github.com/gaurav-gs7/helios/internal/store/postgres"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gauravgs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/domain"
 )
 
 func TestPickWorkerChoosesLeastLoadedEligibleWorker(t *testing.T) {

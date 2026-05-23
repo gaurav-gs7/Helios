@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gauravgs7/helios/internal/dag"
-	"github.com/gauravgs7/helios/internal/domain"
-	"github.com/gauravgs7/helios/internal/store/postgres"
+	"github.com/gaurav-gs7/helios/internal/dag"
+	"github.com/gaurav-gs7/helios/internal/domain"
+	"github.com/gaurav-gs7/helios/internal/store/postgres"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

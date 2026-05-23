@@ -10,14 +10,14 @@ labels:
       app.kubernetes.io/environment: dev
 
 images:
-  - name: ghcr.io/gauravgs7/helios/control-plane
-    newName: ghcr.io/gauravgs7/helios/control-plane
+  - name: ghcr.io/gaurav-gs7/helios/control-plane
+    newName: ghcr.io/gaurav-gs7/helios/control-plane
     newTag: dev
-  - name: ghcr.io/gauravgs7/helios/worker
-    newName: ghcr.io/gauravgs7/helios/worker
+  - name: ghcr.io/gaurav-gs7/helios/worker
+    newName: ghcr.io/gaurav-gs7/helios/worker
     newTag: dev
-  - name: ghcr.io/gauravgs7/helios/planner
-    newName: ghcr.io/gauravgs7/helios/planner
+  - name: ghcr.io/gaurav-gs7/helios/planner
+    newName: ghcr.io/gaurav-gs7/helios/planner
     newTag: dev
 
 patches:
