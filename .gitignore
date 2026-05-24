@@ -7,3 +7,5 @@ planner/__pycache__/
 coverage.out
 .gocache/
 .gomodcache/
+logs/*.log
+logs/*.log.*

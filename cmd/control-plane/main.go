@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/gaurav-gs7/helios/internal/api"
+	"github.com/gaurav-gs7/helios/internal/applog"
 	"github.com/gaurav-gs7/helios/internal/config"
 	"github.com/gaurav-gs7/helios/internal/dispatch"
 	"github.com/gaurav-gs7/helios/internal/metrics"
@@ -22,7 +22,8 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger, closeLogs := applog.New("control-plane")
+	defer closeLogs()
 	cfg, err := config.LoadControlPlane()
 	if err != nil {
 		logger.Error("load control-plane config", "err", err)

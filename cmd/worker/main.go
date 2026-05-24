@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"flag"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"github.com/gaurav-gs7/helios/internal/applog"
 	"github.com/gaurav-gs7/helios/internal/config"
 	"github.com/gaurav-gs7/helios/internal/dispatch"
 	"github.com/gaurav-gs7/helios/internal/handlers"
@@ -28,7 +28,8 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger, closeLogs := applog.New("worker")
+	defer closeLogs()
 
 	dispatcher, err := dispatch.New(cfg.NATSURL)
 	if err != nil {

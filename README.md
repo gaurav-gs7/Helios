@@ -236,3 +236,21 @@ The planner exposes `/metrics` and Prometheus scrapes it as `helios-planner`. Us
 - Chaos drills: `scripts/chaos/kill_worker.sh`, `scripts/chaos/restart_control_plane.sh`, `scripts/chaos/pause_heartbeats.md`
 - Prometheus alert rules: `deploy/alerts/helios-alerts.yml`
 - Kubernetes base manifests: `deploy/k8s/base`
+
+## Local application logs
+
+Helios streams application logs to stdout and also writes local files under `logs/`:
+
+- `logs/control-plane.log`
+- `logs/worker.log`
+- `logs/planner.log`
+
+For Docker Compose, `deploy/compose.yaml` bind-mounts the project `logs/` directory into each application container. For local `go run` or `uvicorn`, the default `HELIOS_LOG_DIR` is also `logs`.
+
+Stream all app logs locally:
+
+```bash
+make logs
+```
+
+Use `HELIOS_LOG_DIR=/path/to/logs` to write logs somewhere else.

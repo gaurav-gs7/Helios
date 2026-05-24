@@ -46,6 +46,9 @@ services:
       GEMINI_API_BASE: ${GEMINI_API_BASE:-https://generativelanguage.googleapis.com/v1beta}
       GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-20}
       HELIOS_RUNBOOK_DIR: /app/runbooks
+      HELIOS_LOG_DIR: /logs
+    volumes:
+      - ../logs:/logs
     ports:
       - "8090:8090"
 
@@ -77,6 +80,9 @@ services:
       HELIOS_LEASE_DURATION: 20s
       HELIOS_HEARTBEAT_STALE_AFTER: 15s
       HELIOS_HEARTBEAT_DEAD_AFTER: 30s
+      HELIOS_LOG_DIR: /logs
+    volumes:
+      - ../logs:/logs
     ports:
       - "8080:8080"
       - "8081:8081"
@@ -103,6 +109,9 @@ services:
       HELIOS_WORKER_CAPACITY: ${HELIOS_WORKER_CAPACITY:-2}
       HELIOS_WORKER_CPU_CAPACITY_UNITS: ${HELIOS_WORKER_CPU_CAPACITY_UNITS:-2000}
       HELIOS_WORKER_MEMORY_CAPACITY_MB: ${HELIOS_WORKER_MEMORY_CAPACITY_MB:-1024}
+      HELIOS_LOG_DIR: /logs
+    volumes:
+      - ../logs:/logs
 
   prometheus:
     image: prom/prometheus:v2.54.1

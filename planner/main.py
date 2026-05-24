@@ -16,8 +16,31 @@ from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
-logging.basicConfig(level=logging.INFO)
-LOGGER = logging.getLogger("helios-planner")
+
+def configure_logging() -> logging.Logger:
+    logger = logging.getLogger("helios-planner")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    )
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    log_dir = Path(os.getenv("HELIOS_LOG_DIR", "logs"))
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_dir / "planner.log")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError as exc:
+        logger.warning("file logging disabled: %s", exc)
+    return logger
+
+
+LOGGER = configure_logging()
 
 PLANNER_BACKEND = os.getenv("HELIOS_PLANNER_BACKEND", "gemini").strip().lower()
 GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("HELIOS_PLANNER_API_KEY") or "").strip()
