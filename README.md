@@ -254,3 +254,7 @@ make logs
 ```
 
 Use `HELIOS_LOG_DIR=/path/to/logs` to write logs somewhere else.
+
+## License
+
+This project is intended to be released under the Apache License 2.0. In brief, Apache 2.0 allows use, modification, distribution, and private or commercial use, while requiring preservation of copyright and license notices. It also includes an explicit patent grant from contributors and provides the software without warranty.
