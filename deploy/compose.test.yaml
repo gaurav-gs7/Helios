@@ -1,0 +1,18 @@
+name: helios-integration
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: helios
+      POSTGRES_USER: helios
+      POSTGRES_PASSWORD: helios
+    ports:
+      - "${HELIOS_TEST_POSTGRES_PORT:-55432}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helios -d helios"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

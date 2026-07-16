@@ -1,12 +1,14 @@
 GO ?= go
 PYTHON ?= python3
 DOCKER_COMPOSE ?= docker compose -f deploy/compose.yaml
+TEST_COMPOSE ?= docker compose -f deploy/compose.test.yaml
+TEST_DATABASE_URL ?= postgres://helios:helios@127.0.0.1:55432/helios?sslmode=disable
 
 DEPLOY_TARGET ?= docker-compose
 DEPLOY_OVERLAY ?= dev
 BENCHMARK_COUNTS ?= 100 500 1000
 
-.PHONY: fmt lint test build-cli infra-up infra-down run-control-plane run-worker planner logs benchmark benchmark-quick pre-deploy-check post-deploy-check smoke deploy compose-deploy k8s-deploy-dev argocd-bootstrap-dev
+.PHONY: fmt lint test integration-test build-cli infra-up infra-down run-control-plane run-worker planner logs benchmark benchmark-quick pre-deploy-check post-deploy-check smoke deploy compose-deploy k8s-deploy-dev argocd-bootstrap-dev
 
 fmt:
 	$(GO)fmt ./...
@@ -17,6 +19,12 @@ lint:
 
 test:
 	$(GO) test ./...
+
+integration-test:
+	@set -eu; \
+		$(TEST_COMPOSE) up -d --wait; \
+		trap '$(TEST_COMPOSE) down -v' EXIT; \
+		HELIOS_TEST_DATABASE_URL='$(TEST_DATABASE_URL)' $(GO) test -race -count=1 -run TestStoreRecoversExpiredAttempts ./internal/store/postgres
 
 build-cli:
 	mkdir -p bin

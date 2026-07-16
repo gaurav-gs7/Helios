@@ -148,6 +148,12 @@ make post-deploy-check
 
 The pre-deploy check validates tooling, Go tests, planner compilation, Docker Compose config, Kustomize rendering, and Prometheus alert rules before any rollout. The post-deploy check validates control-plane readiness, worker registration, Gemini planner health, Prometheus alert loading, and an end-to-end workflow smoke test.
 
+Run the PostgreSQL-backed lease-recovery integration test with a disposable database:
+
+```bash
+make integration-test
+```
+
 To use the manual `deploy-smoke` GitHub Action, choose `docker-compose`, `kubernetes`, or `argocd` from the `deployment_target` dropdown. The Kubernetes and Argo CD paths require a `KUBE_CONFIG_B64` repository secret containing a base64-encoded kubeconfig for the target cluster. The Docker Compose path runs fully inside the GitHub Actions runner.
 
 ## AI planner and operations assistant

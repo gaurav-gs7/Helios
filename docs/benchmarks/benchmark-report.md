@@ -1,5 +1,7 @@
 # Benchmark Report
 
+> The repository does not currently publish measured benchmark results. This file documents the required method and reporting shape; do not interpret it as performance evidence until a dated result bundle is linked below.
+
 ## Goal
 
 Measure Helios at production-shaped workflow volumes instead of the original tiny smoke-style run. The benchmark now supports 100, 500, 1000, or larger workflow batches and records scheduler, worker, retry, recovery, and correctness signals for each run.

@@ -5,6 +5,7 @@ dist/
 planner/.venv/
 planner/__pycache__/
 coverage.out
+.cache/
 .gocache/
 .gomodcache/
 logs/*.log
